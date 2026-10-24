@@ -57,9 +57,23 @@ export function UpdateButton() {
   );
 }
 
+const RELEASES = 'https://github.com/amir-r-z-a/office-app/releases/latest';
+
 /** In the profile menu: the app version and a manual check. */
 export function UpdateMenuItem({ onDone }: { onDone: () => void }) {
   const update = useUpdate();
+  if (desktop && !desktop.updates) {
+    // A desktop app from before in-app updates: point to the installer once.
+    return (
+      <button className="menu-item menu-item--update" onClick={() => (window.open(RELEASES, '_blank'), onDone())}>
+        <ArrowDownToLine size={16} />
+        <span>
+          <strong>Get the latest desktop app</strong>
+          <small>This version can’t update itself</small>
+        </span>
+      </button>
+    );
+  }
   if (!update) return null;
   const label =
     update.status === 'checking'
