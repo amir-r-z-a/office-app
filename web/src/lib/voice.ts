@@ -171,6 +171,8 @@ class VoiceEngine {
     const wanted = new Set(this.wantedPeers());
     for (const id of [...this.peers.keys()]) if (!wanted.has(id)) this.closePeer(id);
     for (const id of wanted) if (!this.peers.has(id)) this.openPeer(id);
+    // The room changed size while sharing: spread the bitrate again.
+    if (this.screenTrack) for (const peer of this.peers.values()) void this.sendScreen(peer);
 
     if (wanted.size) {
       window.clearTimeout(this.releaseTimer);
@@ -256,6 +258,7 @@ class VoiceEngine {
       peer.transceiver = pc.addTransceiver('audio', { direction: 'sendrecv' });
       peer.streamTransceiver = pc.addTransceiver('audio', { direction: 'sendrecv' });
       peer.videoTransceiver = pc.addTransceiver('video', { direction: 'sendrecv' });
+      preferH264(peer.videoTransceiver);
       if (this.screenTrack) void this.sendScreen(peer);
       const track = this.stream?.getAudioTracks()[0];
       if (track) void peer.transceiver.sender.replaceTrack(track);
@@ -296,6 +299,7 @@ class VoiceEngine {
   // Negotiation
 
   private signal(to: string, body: RtcSignalBody) {
+    if ('description' in body && body.description.sdp) body = { description: { ...body.description, sdp: tuneSdp(body.description.sdp) } };
     const { send, connection } = useStore.getState();
     if (connection === 'online') send({ type: 'rtc.signal', to, signal: { ...body, session: SESSION } as RtcSignal });
   }
@@ -334,6 +338,7 @@ class VoiceEngine {
           peer.transceiver = voiceT ?? null;
           peer.streamTransceiver = streamT ?? null;
           peer.videoTransceiver = videoT ?? null;
+          if (videoT) preferH264(videoT);
           for (const t of [voiceT, streamT, videoT]) if (t) t.direction = 'sendrecv';
           const track = this.stream?.getAudioTracks()[0];
           if (track && voiceT) await voiceT.sender.replaceTrack(track);
@@ -774,6 +779,7 @@ class VoiceEngine {
   // Screen sharing
 
   private screenTrack: MediaStreamTrack | null = null;
+  private screenMode: ScreenMode = 'smooth';
   /** Audio that came with the screen, sent on the stream channel. */
   private screenAudio = false;
 
@@ -781,16 +787,23 @@ class VoiceEngine {
    * Show a screen or a window to the room. In the desktop app `sourceId` comes from our own
    * picker; in a browser the browser's picker asks.
    */
-  async startScreen(sourceId: string | null, withAudio: boolean): Promise<string | null> {
+  async startScreen(sourceId: string | null, withAudio: boolean, mode: ScreenMode = 'smooth'): Promise<string | null> {
     if (!navigator.mediaDevices?.getDisplayMedia) return 'Screen sharing isn’t available here. Use the Office desktop app.';
+    // Capture at up to 1080p: Retina screens are several times that, and every extra pixel
+    // costs encoding time, which shows up as stutter.
+    const video: MediaTrackConstraints = {
+      frameRate: { ideal: 30, max: 30 },
+      width: { max: MAX_SCREEN_WIDTH },
+      height: { max: MAX_SCREEN_HEIGHT },
+    };
     let stream: MediaStream;
     try {
       if (desktop?.capture) {
         desktop.capture.choose({ sourceId, audio: withAudio ? 'system' : 'none' });
-        stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 30, max: 30 } }, audio: withAudio });
+        stream = await navigator.mediaDevices.getDisplayMedia({ video, audio: withAudio });
       } else {
         stream = await navigator.mediaDevices.getDisplayMedia({
-          video: { frameRate: { ideal: 30, max: 30 } },
+          video,
           audio: true,
           ...({ selfBrowserSurface: 'exclude', systemAudio: 'include' } as object),
         } as DisplayMediaStreamOptions);
@@ -798,13 +811,15 @@ class VoiceEngine {
     } catch (err) {
       return (err as DOMException).name === 'NotAllowedError' ? null : 'Couldn’t start sharing your screen.';
     }
-    const video = stream.getVideoTracks()[0];
-    if (!video) return 'Nothing was picked to share.';
+    const track = stream.getVideoTracks()[0];
+    if (!track) return 'Nothing was picked to share.';
     this.stopScreen(false);
-    video.contentHint = 'detail';
-    this.screenTrack = video;
-    video.addEventListener('ended', () => this.stopScreen());
-    useVoice.setState({ myScreen: new MediaStream([video]) });
+    // "motion" keeps the frame rate up when things move; "detail" keeps text crisp.
+    track.contentHint = mode === 'smooth' ? 'motion' : 'detail';
+    this.screenMode = mode;
+    this.screenTrack = track;
+    track.addEventListener('ended', () => this.stopScreen());
+    useVoice.setState({ myScreen: new MediaStream([track]) });
     for (const peer of this.peers.values()) await this.sendScreen(peer);
     useStore.getState().send({ type: 'screen.share', on: true });
 
@@ -833,23 +848,58 @@ class VoiceEngine {
     return !!this.screenTrack;
   }
 
-  /** Everyone gets their own copy of the video, so the bitrate shrinks as the room grows. */
+  /**
+   * Every viewer gets their own encoded copy, so the bitrate shrinks as the room grows. On an
+   * office LAN there's plenty of room, so small rooms get a generous bitrate.
+   */
   private async sendScreen(peer: Peer) {
     const sender = peer.videoTransceiver?.sender;
-    if (!sender) return;
+    if (!sender || !this.screenTrack) return void sender?.replaceTrack(null);
     await sender.replaceTrack(this.screenTrack);
     try {
       const viewers = Math.max(1, this.peers.size);
+      const { width = MAX_SCREEN_WIDTH, height = MAX_SCREEN_HEIGHT } = this.screenTrack.getSettings();
       const params = sender.getParameters();
-      params.degradationPreference = 'maintain-resolution';
+      // Smooth: drop resolution before frames. Sharp: the other way round.
+      params.degradationPreference = this.screenMode === 'smooth' ? 'maintain-framerate' : 'maintain-resolution';
       if (params.encodings?.length) {
-        params.encodings[0].maxBitrate = viewers <= 3 ? 2_500_000 : viewers <= 7 ? 1_500_000 : 900_000;
-        params.encodings[0].maxFramerate = viewers <= 7 ? 30 : 15;
+        const e = params.encodings[0];
+        e.maxBitrate = viewers === 1 ? 6_000_000 : viewers <= 3 ? 4_000_000 : viewers <= 7 ? 2_500_000 : 1_500_000;
+        e.maxFramerate = viewers <= 7 ? 30 : 20;
+        // In case the capture ignored the size limit, scale down when encoding instead.
+        e.scaleResolutionDownBy = Math.max(1, width / MAX_SCREEN_WIDTH, height / MAX_SCREEN_HEIGHT);
+        e.priority = 'high';
+        e.networkPriority = 'high';
       }
       await sender.setParameters(params);
     } catch {
       // The defaults still work.
     }
+  }
+
+  /** For troubleshooting smoothness: what is actually being sent and received. */
+  async screenStats() {
+    const out: Record<string, { direction: string; codec?: string; fps?: number; width?: number; height?: number; encoder?: string; decoder?: string; hardware?: boolean; limit?: string }> = {};
+    for (const [id, peer] of this.peers) {
+      const stats = await peer.pc.getStats();
+      const codecs = new Map<string, string>();
+      stats.forEach((r) => r.type === 'codec' && codecs.set(r.id, r.mimeType));
+      stats.forEach((r) => {
+        if (r.kind !== 'video' || (r.type !== 'outbound-rtp' && r.type !== 'inbound-rtp') || !(r.framesPerSecond || r.framesEncoded || r.framesDecoded)) return;
+        out[`${id}:${r.type === 'outbound-rtp' ? 'out' : 'in'}`] = {
+          direction: r.type === 'outbound-rtp' ? 'sending' : 'receiving',
+          codec: codecs.get(r.codecId),
+          fps: r.framesPerSecond,
+          width: r.frameWidth,
+          height: r.frameHeight,
+          encoder: r.encoderImplementation,
+          decoder: r.decoderImplementation,
+          hardware: r.powerEfficientEncoder ?? r.powerEfficientDecoder,
+          limit: r.qualityLimitationReason,
+        };
+      });
+    }
+    return out;
   }
 
   async refreshDevices() {
@@ -889,6 +939,73 @@ class VoiceEngine {
       } as typeof out[string];
     }
     return out;
+  }
+}
+
+export type ScreenMode = 'smooth' | 'sharp';
+
+/**
+ * WebRTC starts video around 300 kbit/s and probes upward, sized for the internet. On an office
+ * LAN that makes the first seconds of a screen share blurry and choppy. These codec hints, read
+ * by the other side's sender, start it high and keep a floor under it.
+ */
+const VIDEO_START_KBPS = 3000;
+const VIDEO_MIN_KBPS = 800;
+
+function tuneSdp(sdp: string): string {
+  const lines = sdp.split('\r\n');
+  const video = new Set<string>();
+  let inVideo = false;
+  for (const line of lines) {
+    if (line.startsWith('m=')) inVideo = line.startsWith('m=video');
+    const map = inVideo && /^a=rtpmap:(\d+) (H264|VP8|VP9|AV1)\//.exec(line);
+    if (map) video.add(map[1]);
+  }
+  if (!video.size) return sdp;
+  const hint = `x-google-start-bitrate=${VIDEO_START_KBPS};x-google-min-bitrate=${VIDEO_MIN_KBPS}`;
+  const out: string[] = [];
+  const hasFmtp = new Set<string>();
+  for (const line of lines) {
+    const fmtp = /^a=fmtp:(\d+) /.exec(line);
+    if (fmtp && video.has(fmtp[1]) && !line.includes('x-google-start-bitrate')) {
+      hasFmtp.add(fmtp[1]);
+      out.push(`${line};${hint}`);
+      continue;
+    }
+    if (fmtp) hasFmtp.add(fmtp[1]);
+    out.push(line);
+    // Codecs without an fmtp line get one right after their rtpmap.
+    const map = /^a=rtpmap:(\d+) /.exec(line);
+    if (map && video.has(map[1]) && !lines.some((l) => l.startsWith(`a=fmtp:${map[1]} `))) out.push(`a=fmtp:${map[1]} ${hint}`);
+  }
+  return out.join('\r\n');
+}
+
+const MAX_SCREEN_WIDTH = 1920;
+const MAX_SCREEN_HEIGHT = 1080;
+
+/**
+ * Put H.264 first for screen video. Macs and most PCs encode it in hardware, which is far
+ * faster than the default VP8 in software and keeps the frame rate up. Other codecs stay as
+ * fallbacks, so a computer without H.264 still connects.
+ */
+function preferH264(transceiver: RTCRtpTransceiver) {
+  const caps = typeof RTCRtpReceiver !== 'undefined' && RTCRtpReceiver.getCapabilities?.('video');
+  if (!caps || !transceiver.setCodecPreferences) return;
+  const rank = (c: RTCRtpCodec) => {
+    if (c.mimeType !== 'video/H264') return 9;
+    const fmtp = c.sdpFmtpLine ?? '';
+    // Packetization mode 1 is what hardware encoders produce; prefer the common profiles.
+    if (!fmtp.includes('packetization-mode=1')) return 5;
+    if (fmtp.includes('profile-level-id=42e0')) return 0;
+    if (fmtp.includes('profile-level-id=4d')) return 1;
+    return 2;
+  };
+  const sorted = [...caps.codecs].sort((a, b) => rank(a) - rank(b));
+  try {
+    transceiver.setCodecPreferences(sorted);
+  } catch {
+    // Keep the browser's own order.
   }
 }
 

@@ -1,10 +1,10 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { AppWindow, Expand, Globe, Lock, Settings2, Maximize2, Monitor, MonitorUp, PictureInPicture2, Radio, ScreenShare, Volume2, X } from 'lucide-react';
+import { AppWindow, Expand, Gauge, Globe, Lock, Settings2, Type, Maximize2, Monitor, MonitorUp, PictureInPicture2, Radio, ScreenShare, Volume2, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { create } from 'zustand';
 import { desktop, type CaptureSource } from '../lib/desktop';
 import { useStore } from '../lib/store';
-import { useVoice, voice } from '../lib/voice';
+import { useVoice, voice, type ScreenMode } from '../lib/voice';
 import { Avatar } from './Avatar';
 import { Button, Modal, Segmented } from './ui';
 
@@ -40,8 +40,45 @@ export function SharePicker() {
 
 // Screens and windows
 
+const MODE_KEY = 'office.screenMode';
+
+function savedMode(): ScreenMode {
+  try {
+    return localStorage.getItem(MODE_KEY) === 'sharp' ? 'sharp' : 'smooth';
+  } catch {
+    return 'smooth';
+  }
+}
+
+/** Smooth motion or sharp text: the encoder can't maximize both when the computer is busy. */
+function ModeChoice({ value, onChange }: { value: ScreenMode; onChange: (m: ScreenMode) => void }) {
+  return (
+    <div className="mode-choice">
+      <span className="mode-choice__label">Optimize for</span>
+      <Segmented<ScreenMode>
+        size="sm"
+        layoutId="screen-mode"
+        value={value}
+        onChange={(m) => {
+          onChange(m);
+          try {
+            localStorage.setItem(MODE_KEY, m);
+          } catch {
+            // Just not remembered.
+          }
+        }}
+        options={[
+          { value: 'smooth', label: 'Smooth motion', icon: <Gauge size={13} />, title: 'Videos, scrolling, demos' },
+          { value: 'sharp', label: 'Sharp text', icon: <Type size={13} />, title: 'Code, documents, slides' },
+        ]}
+      />
+    </div>
+  );
+}
+
 function ScreenChoice({ onDone }: { onDone: () => void }) {
   const toast = useStore((s) => s.toast);
+  const [mode, setMode] = useState<ScreenMode>(savedMode);
   const [sources, setSources] = useState<CaptureSource[] | null>(null);
   const [tab, setTab] = useState<'screen' | 'window'>('screen');
   const [selected, setSelected] = useState<string | null>(null);
@@ -83,7 +120,7 @@ function ScreenChoice({ onDone }: { onDone: () => void }) {
 
   const share = async (sourceId: string | null) => {
     setBusy(true);
-    const problem = await voice.startScreen(sourceId, withAudio);
+    const problem = await voice.startScreen(sourceId, withAudio, mode);
     setBusy(false);
     if (problem) toast({ tone: 'error', title: 'Couldn’t share', body: problem });
     else onDone();
@@ -96,6 +133,7 @@ function ScreenChoice({ onDone }: { onDone: () => void }) {
         <span className="share-browser__icon">
           <ScreenShare size={26} />
         </span>
+        <ModeChoice value={mode} onChange={setMode} />
         <p>
           {desktop
             ? 'This version of Office shares your whole screen. Update Office (profile menu → Check for updates) to pick a single window.'
@@ -145,6 +183,7 @@ function ScreenChoice({ onDone }: { onDone: () => void }) {
           <p className="source-grid__empty">{tab === 'window' ? 'No windows to share. Open the app you want to show.' : 'No screens found.'}</p>
         )}
       </div>
+      <ModeChoice value={mode} onChange={setMode} />
       <label className={`toggle ${withAudio ? 'is-on' : ''}`}>
         <span className="toggle__text">
           <strong>Also share my computer’s sound</strong>

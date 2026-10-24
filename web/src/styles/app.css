@@ -4183,3 +4183,19 @@ kbd {
   width: 12px;
   height: 12px;
 }
+
+.mode-choice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 16px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  align-self: stretch;
+}
+.mode-choice__label {
+  font-size: 13.5px;
+  font-weight: 650;
+}
