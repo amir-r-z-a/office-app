@@ -10,6 +10,7 @@ import { Avatar, StatusDot, statusLabel } from '../components/Avatar';
 import { Button, Field, Modal, Popover, Segmented } from '../components/ui';
 import { Office, DoorbellStack } from './Office';
 import { AudioSettings } from '../components/Voice';
+import { UpdateButton, UpdateMenuItem } from '../components/Update';
 import { useVoice } from '../lib/voice';
 import { Admin } from './Admin';
 
@@ -66,6 +67,7 @@ function Sidebar() {
             </button>
           ))}
       </div>
+      <UpdateButton />
       <ThemeSwitch />
     </nav>
   );
@@ -214,6 +216,7 @@ function MeMenu() {
           <button className="menu-item" onClick={() => (setOpen(false), useVoice.setState({ settingsOpen: true }))}>
             <AudioLines size={16} /> Audio settings
           </button>
+          <UpdateMenuItem onDone={() => setOpen(false)} />
           {desktop && (
             <button className="menu-item" onClick={() => (setOpen(false), desktop?.changeServer())}>
               <Server size={16} /> Change server

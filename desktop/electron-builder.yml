@@ -1,0 +1,61 @@
+# Installers for Windows (.exe) and macOS (.dmg), built by .github/workflows/release.yml.
+appId: app.office.desktop
+productName: Office
+copyright: Copyright © Office
+directories:
+  output: out
+  buildResources: build
+# Everything the app needs is bundled into dist/ by esbuild, so no node_modules are shipped.
+files:
+  - dist/**
+  - static/**
+  - package.json
+asar: true
+
+mac:
+  category: public.app-category.productivity
+  target:
+    - target: dmg
+      arch: universal
+    # The zip is what the in-app updater downloads.
+    - target: zip
+      arch: universal
+  # No Apple Developer account: ad-hoc sign so Apple Silicon Macs will run it.
+  identity: '-'
+  hardenedRuntime: false
+  notarize: false
+  darkModeSupport: true
+  extendInfo:
+    NSMicrophoneUsageDescription: Office uses your microphone so you can talk with people in your room.
+    NSAudioCaptureUsageDescription: Office captures your computer's audio when you share it with your room.
+  artifactName: Office-${version}-mac.${ext}
+dmg:
+  title: Office ${version}
+  artifactName: Office-${version}.dmg
+  contents:
+    - x: 140
+      y: 190
+    - x: 400
+      y: 190
+      type: link
+      path: /Applications
+
+win:
+  target:
+    - target: nsis
+      arch: x64
+  artifactName: Office-Setup-${version}.${ext}
+nsis:
+  # One click, per user, no admin rights: also what makes silent updates possible.
+  oneClick: true
+  perMachine: false
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: Office
+  runAfterFinish: true
+
+publish:
+  provider: github
+  owner: amir-r-z-a
+  repo: office-app
+  releaseType: release

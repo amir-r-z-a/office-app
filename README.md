@@ -63,10 +63,18 @@ If coworkers can't connect, allow port 4000 through the server computer's firewa
 
 ### The desktop app
 
+Download the installer from the [latest release](https://github.com/amir-r-z-a/office-app/releases/latest):
+
+- **Windows:** `Office-Setup-x.y.z.exe`. The app isn't code-signed, so Windows shows "Windows protected your PC": click **More info → Run anyway**. It installs for your user without asking for admin rights.
+- **macOS:** `Office-x.y.z.dmg` (one file for Apple Silicon and Intel). Drag Office into Applications. The first time you open it, macOS blocks it because it isn't from an identified developer: go to **System Settings → Privacy & Security** and click **Open Anyway**.
+
+**Updates:** the app checks for new releases at startup and every 4 hours, downloads them in the background, and shows a glowing button in the sidebar to restart into the new version. You never reinstall. The office screens themselves come from your office server, so most new features arrive just by updating the server. The desktop app only needs an update when its own shell changes.
+
+To run the desktop app from source instead:
+
 ```bash
 cd desktop
-npm install        # downloads Electron
-npm start
+npm start          # downloads Electron the first time
 ```
 
 On a Mac, `npm start` opens Electron as its own app, not as part of your terminal. That way macOS asks permission for Electron, which system-audio sharing needs. The first time you share audio, allow **Screen & System Audio Recording**, then quit (tray icon → Quit) and reopen.
@@ -80,6 +88,14 @@ npm run dev        # server on :4000 with reload, web app on :5173 with hot relo
 npm test           # server tests
 npm run typecheck
 ```
+
+## Releasing a new desktop version
+
+1. Set `"version"` in `desktop/package.json`, say `0.2.0`, and commit.
+2. Tag and push: `git tag v0.2.0 && git push origin v0.2.0`.
+3. GitHub Actions builds both installers on real Windows and Mac machines and publishes the release, usually in about 10 minutes. Installed apps pick it up on their next check.
+
+For apps to download updates, the repository's releases must be public.
 
 ## How it's built
 

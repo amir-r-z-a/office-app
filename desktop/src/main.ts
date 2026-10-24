@@ -1,6 +1,7 @@
 import { app, BrowserWindow, desktopCapturer, ipcMain, Menu, nativeImage, session, shell, Tray } from 'electron';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { updater, type UpdateState } from './updater';
 
 interface Config {
   server: string | null;
@@ -92,6 +93,12 @@ function start() {
   createTray();
   if (config.server) void win.loadURL(config.server);
   else showConnect();
+
+  updater.onChange((state) => {
+    win?.webContents.send('office:update', state);
+    refreshTray(state);
+  });
+  updater.start(() => (quitting = true));
 }
 
 function showConnect(error?: string) {
@@ -111,18 +118,37 @@ function createTray() {
   const image = nativeImage.createFromPath(join(staticDir, process.platform === 'darwin' ? 'trayTemplate.png' : 'tray.png'));
   tray = new Tray(image);
   tray.setToolTip('Office');
+  refreshTray(updater.state);
+  tray.on('click', showWindow);
+}
+
+function refreshTray(update: UpdateState) {
+  if (!tray) return;
+  const updateItem: Electron.MenuItemConstructorOptions =
+    update.status === 'ready'
+      ? { label: `Restart to update to ${update.version}`, click: () => updater.install() }
+      : update.status === 'downloading'
+        ? { label: `Downloading update… ${Math.round((update.progress ?? 0) * 100)}%`, enabled: false }
+        : { label: 'Check for updates', enabled: app.isPackaged && update.status !== 'checking', click: () => void updater.check() };
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: 'Open Office', click: showWindow },
       { label: 'Change server…', click: () => (showWindow(), showConnect()) },
+      { type: 'separator' },
+      { label: `Office ${app.getVersion()}`, enabled: false },
+      updateItem,
       { type: 'separator' },
       { label: 'Start when I sign in', type: 'checkbox', checked: app.getLoginItemSettings().openAtLogin, click: (item) => app.setLoginItemSettings({ openAtLogin: item.checked }) },
       { type: 'separator' },
       { label: 'Quit', click: () => ((quitting = true), app.quit()) },
     ]),
   );
-  tray.on('click', showWindow);
 }
+
+ipcMain.handle('office:update:get', () => updater.state);
+ipcMain.handle('office:update:check', () => updater.check());
+ipcMain.on('office:update:install', () => updater.install());
+ipcMain.on('office:update:download-page', () => updater.openDownloadPage());
 
 ipcMain.handle('office:connect', async (_e, raw: string) => {
   const server = normalize(raw);

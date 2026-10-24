@@ -6,11 +6,17 @@
   "scripts": {
     "build": "esbuild src/main.ts src/preload.ts --bundle --platform=node --format=cjs --external:electron --outdir=dist",
     "start": "npm run build && node scripts/start.mjs",
-    "typecheck": "tsc -p ."
+    "typecheck": "tsc -p .",
+    "dist": "npm run build && electron-builder --publish never"
   },
   "devDependencies": {
+    "@types/node": "^22.0.0",
     "electron": "^45.0.0",
-    "esbuild": "^0.28.2",
-    "@types/node": "^22.0.0"
-  }
+    "electron-builder": "^26.18.0",
+    "electron-updater": "^6.8.11",
+    "esbuild": "^0.28.2"
+  },
+  "productName": "Office",
+  "description": "Office desktop app",
+  "author": "amir-r-z-a"
 }
