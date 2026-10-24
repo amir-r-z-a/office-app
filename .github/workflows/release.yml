@@ -1,21 +1,51 @@
 # Builds the desktop installers and publishes them as a GitHub release.
 #
-# To release: set the version in desktop/package.json, commit, then
-#   git tag v1.2.3 && git push origin v1.2.3
-# Installed apps find the new release and update themselves.
+# To release: change "version" in desktop/package.json and push to main. If that version has
+# no release yet, this builds the Windows and macOS installers on real machines and publishes
+# release v<version>. Installed apps find it and update themselves.
 name: Release desktop app
 
 on:
   push:
-    tags: ['v*']
-  # Run by hand to test the build without publishing a release.
+    branches: [main]
+    paths:
+      - desktop/**
+      - .github/workflows/release.yml
+  # Run by hand to build again, e.g. after a failed run.
   workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      release: ${{ steps.version.outputs.release }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(node -p "require('./desktop/package.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if gh release view "v$version" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release v$version already exists; nothing to do."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Will build and publish v$version."
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          fi
+
   build:
+    needs: check
+    if: needs.check.outputs.release == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -28,15 +58,6 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Check the tag matches the app version
-        if: startsWith(github.ref, 'refs/tags/v')
-        shell: bash
-        run: |
-          version=$(node -p "require('./desktop/package.json').version")
-          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
-            echo "::error::The tag is $GITHUB_REF_NAME but desktop/package.json says $version"
-            exit 1
-          fi
       - name: Build the installer
         run: npm run dist --workspace desktop
       - uses: actions/upload-artifact@v4
@@ -51,8 +72,7 @@ jobs:
             desktop/out/latest*.yml
 
   release:
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [check, build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -62,9 +82,11 @@ jobs:
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.check.outputs.version }}
         run: |
           ls -la files
-          gh release create "$GITHUB_REF_NAME" files/* \
+          gh release create "v$VERSION" files/* \
             --repo "$GITHUB_REPOSITORY" \
-            --title "Office ${GITHUB_REF_NAME#v}" \
+            --target "$GITHUB_SHA" \
+            --title "Office $VERSION" \
             --generate-notes

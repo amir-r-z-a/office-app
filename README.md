@@ -91,9 +91,9 @@ npm run typecheck
 
 ## Releasing a new desktop version
 
-1. Set `"version"` in `desktop/package.json`, say `0.2.0`, and commit.
-2. Tag and push: `git tag v0.2.0 && git push origin v0.2.0`.
-3. GitHub Actions builds both installers on real Windows and Mac machines and publishes the release, usually in about 10 minutes. Installed apps pick it up on their next check.
+1. Set `"version"` in `desktop/package.json`, say `0.2.0`.
+2. Commit and push to `main`.
+3. GitHub Actions sees a version with no release yet, builds both installers on real Windows and Mac machines, and publishes release `v0.2.0`. That usually takes about 10 minutes. Installed apps pick it up on their next check.
 
 For apps to download updates, the repository's releases must be public.
 
