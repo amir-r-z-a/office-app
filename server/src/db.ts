@@ -191,10 +191,6 @@ export class Db {
     this.db.prepare('DELETE FROM rooms WHERE id = ?').run(id);
   }
 
-  /** Personal rooms whose owner was just removed: `ON DELETE SET NULL` already cleared them. */
-  roomsOwnedBy(userId: string): Room[] {
-    return (this.db.prepare('SELECT * FROM rooms WHERE owner_id = ?').all(userId) as unknown as RoomRow[]).map(toRoom);
-  }
 
   // Settings
 

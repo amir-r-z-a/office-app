@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data:" />
+<title>Connect to your office</title>
+<style>
+  :root { --bg:#f4f1ec; --card:rgba(255,255,255,.86); --text:#1b1830; --text2:#5c5875; --text3:#9592a9; --border:rgba(30,24,56,.1); --field:#faf8f4; --accent:#6c4df6; --danger:#e5354f; --dangerSoft:rgba(229,53,79,.1); }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0c0b14; --card:rgba(24,23,36,.84); --text:#f2f0fb; --text2:#aaa6c4; --text3:#6f6b8a; --border:rgba(255,255,255,.08); --field:#1b1a28; --accent:#9b84ff; --danger:#ff5c74; --dangerSoft:rgba(255,92,116,.14); } }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { font-family: 'Segoe UI Variable', 'Segoe UI', -apple-system, system-ui, sans-serif; background: var(--bg); color: var(--text); display: grid; place-items: center; overflow: hidden; -webkit-app-region: drag; }
+  .blob { position: fixed; border-radius: 50%; filter: blur(90px); opacity: .45; animation: drift 16s ease-in-out infinite alternate; }
+  .b1 { width: 520px; height: 520px; left: -10%; top: -20%; background: #8b6cff; }
+  .b2 { width: 420px; height: 420px; right: -8%; bottom: -20%; background: #ff7d5c; animation-delay: -8s; }
+  @keyframes drift { to { transform: translate(50px, 30px) scale(1.1); } }
+  .card { position: relative; width: 420px; max-width: calc(100vw - 32px); padding: 34px 30px 28px; border-radius: 28px; background: var(--card); backdrop-filter: blur(24px); border: 1px solid var(--border); box-shadow: 0 30px 80px -30px rgba(30,20,80,.45); -webkit-app-region: no-drag; animation: rise .6s cubic-bezier(.22,1,.36,1); }
+  @keyframes rise { from { opacity: 0; transform: translateY(20px) scale(.97); } }
+  .logo { width: 44px; height: 44px; border-radius: 13px; background: linear-gradient(135deg,#7c5cff,#b05cff 45%,#ff6b4a); box-shadow: 0 10px 24px -8px rgba(124,92,255,.7); margin-bottom: 18px; }
+  h1 { font-size: 25px; letter-spacing: -.03em; margin: 0; }
+  p { color: var(--text2); margin: 8px 0 22px; font-size: 14.5px; line-height: 1.45; }
+  label { display: block; font-size: 12.5px; font-weight: 650; color: var(--text2); margin-bottom: 6px; }
+  input { width: 100%; height: 48px; padding: 0 14px; border-radius: 13px; border: 1.5px solid var(--border); background: var(--field); color: var(--text); font: inherit; font-size: 15px; outline: none; transition: border-color .2s, box-shadow .2s; }
+  input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent); }
+  .hint { font-size: 12px; color: var(--text3); margin-top: 6px; }
+  .error { display: none; margin-top: 14px; padding: 10px 12px; border-radius: 12px; background: var(--dangerSoft); color: var(--danger); font-size: 13.5px; }
+  button { margin-top: 18px; width: 100%; height: 50px; border: none; border-radius: 14px; color: #fff; font: inherit; font-weight: 650; font-size: 15px; cursor: pointer; background: linear-gradient(135deg,#7c5cff,#b05cff 45%,#ff6b4a); background-size: 180% 100%; transition: background-position .6s, transform .15s; box-shadow: 0 12px 28px -12px rgba(124,92,255,.9); }
+  button:hover { background-position: 100% 0; }
+  button:active { transform: scale(.98); }
+  button:disabled { opacity: .6; cursor: progress; }
+</style>
+</head>
+<body>
+  <div class="blob b1"></div><div class="blob b2"></div>
+  <form class="card" id="form">
+    <div class="logo"></div>
+    <h1>Connect to your office</h1>
+    <p>Enter the address of the office server. Your admin can find it on the server computer.</p>
+    <label for="server">Server address</label>
+    <input id="server" placeholder="192.168.1.20:4000" autofocus spellcheck="false" />
+    <div class="hint">You need to be on the office Wi-Fi.</div>
+    <div class="error" id="error"></div>
+    <button id="go" type="submit">Connect</button>
+  </form>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const input = document.getElementById('server');
+    const error = document.getElementById('error');
+    const go = document.getElementById('go');
+    input.value = (params.get('server') || '').replace(/^http:\/\//, '');
+    const show = (msg) => { error.textContent = msg; error.style.display = msg ? 'block' : 'none'; };
+    show(params.get('error') || '');
+    document.getElementById('form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      go.disabled = true; go.textContent = 'Connecting…'; show('');
+      const res = await window.officeDesktop.connect(input.value);
+      if (!res.ok) { show(res.error); go.disabled = false; go.textContent = 'Connect'; }
+    });
+  </script>
+</body>
+</html>

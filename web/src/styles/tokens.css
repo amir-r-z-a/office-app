@@ -1,0 +1,117 @@
+/* Design tokens. Two themes, "Daybreak" (light) and "Dusk" (dark), share one set of names. */
+
+:root {
+  --font: 'Plus Jakarta Sans Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  --radius-xs: 6px;
+  --radius-sm: 10px;
+  --radius: 14px;
+  --radius-lg: 20px;
+  --radius-xl: 28px;
+
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* Hue angles for room and avatar tints. */
+  --hue-violet: 258;
+  --hue-coral: 12;
+  --hue-mint: 158;
+  --hue-sky: 204;
+  --hue-amber: 36;
+  --hue-rose: 338;
+  --hue-lime: 88;
+  --hue-indigo: 230;
+
+  --status-available: #1fc28a;
+  --status-busy: #ff7a1a;
+  --status-away: #f5b524;
+  --status-dnd: #f43f5e;
+}
+
+:root,
+[data-theme='light'] {
+  color-scheme: light;
+  --bg: #f4f1ec;
+  --bg-glow-1: rgba(124, 92, 255, 0.16);
+  --bg-glow-2: rgba(255, 107, 74, 0.12);
+  --surface: #ffffff;
+  --surface-2: #faf8f4;
+  --surface-3: #f1eee8;
+  --glass: rgba(255, 255, 255, 0.86);
+  --border: rgba(30, 24, 56, 0.08);
+  --border-strong: rgba(30, 24, 56, 0.16);
+  --text: #1b1830;
+  --text-2: #5c5875;
+  --text-3: #9592a9;
+  --accent: #6c4df6;
+  --accent-hover: #5b3ce6;
+  --accent-soft: rgba(108, 77, 246, 0.1);
+  --accent-ink: #ffffff;
+  --accent-2: #ff6b4a;
+  --gradient: linear-gradient(135deg, #7c5cff 0%, #b05cff 45%, #ff6b4a 100%);
+  --danger: #e5354f;
+  --danger-soft: rgba(229, 53, 79, 0.1);
+  --floor: #ebe7f2;
+  --floor-dot: rgba(60, 40, 120, 0.13);
+  --shadow-sm: 0 1px 2px rgba(30, 24, 56, 0.06), 0 1px 1px rgba(30, 24, 56, 0.04);
+  --shadow: 0 2px 6px rgba(30, 24, 56, 0.05), 0 10px 30px -10px rgba(30, 24, 56, 0.16);
+  --shadow-lg: 0 8px 20px rgba(30, 24, 56, 0.08), 0 30px 70px -20px rgba(30, 24, 56, 0.28);
+  --ring: 0 0 0 3px rgba(108, 77, 246, 0.28);
+
+}
+
+[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #0c0b14;
+  --bg-glow-1: rgba(124, 92, 255, 0.22);
+  --bg-glow-2: rgba(255, 107, 74, 0.1);
+  --surface: #15141f;
+  --surface-2: #1b1a28;
+  --surface-3: #232235;
+  --glass: rgba(24, 23, 36, 0.84);
+  --border: rgba(255, 255, 255, 0.07);
+  --border-strong: rgba(255, 255, 255, 0.14);
+  --text: #f2f0fb;
+  --text-2: #aaa6c4;
+  --text-3: #6f6b8a;
+  --accent: #9b84ff;
+  --accent-hover: #ae9bff;
+  --accent-soft: rgba(155, 132, 255, 0.14);
+  --accent-ink: #120d2b;
+  --accent-2: #ff8a6e;
+  --gradient: linear-gradient(135deg, #8b6cff 0%, #c06cff 45%, #ff7d5c 100%);
+  --danger: #ff5c74;
+  --danger-soft: rgba(255, 92, 116, 0.14);
+  --floor: #100f1a;
+  --floor-dot: rgba(170, 150, 255, 0.12);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow: 0 2px 6px rgba(0, 0, 0, 0.3), 0 12px 32px -10px rgba(0, 0, 0, 0.6);
+  --shadow-lg: 0 10px 24px rgba(0, 0, 0, 0.4), 0 30px 80px -20px rgba(0, 0, 0, 0.8);
+  --ring: 0 0 0 3px rgba(155, 132, 255, 0.35);
+}
+
+[data-hue='violet'] { --h: var(--hue-violet); }
+[data-hue='coral'] { --h: var(--hue-coral); }
+[data-hue='mint'] { --h: var(--hue-mint); }
+[data-hue='sky'] { --h: var(--hue-sky); }
+[data-hue='amber'] { --h: var(--hue-amber); }
+[data-hue='rose'] { --h: var(--hue-rose); }
+[data-hue='lime'] { --h: var(--hue-lime); }
+[data-hue='indigo'] { --h: var(--hue-indigo); }
+
+/* Tint recipe: computed on each tinted element, where --h is known. */
+[data-hue] {
+  --tint-fill: hsl(var(--h) 92% 97%);
+  --tint-fill-2: hsl(var(--h) 85% 93%);
+  --tint-stroke: hsl(var(--h) 70% 72%);
+  --tint-strong: hsl(var(--h) 72% 56%);
+  --tint-ink: hsl(var(--h) 55% 32%);
+}
+
+[data-theme='dark'] [data-hue] {
+  --tint-fill: hsl(var(--h) 35% 13% / 0.85);
+  --tint-fill-2: hsl(var(--h) 40% 18% / 0.9);
+  --tint-stroke: hsl(var(--h) 60% 42% / 0.7);
+  --tint-strong: hsl(var(--h) 85% 70%);
+  --tint-ink: hsl(var(--h) 90% 84%);
+}
