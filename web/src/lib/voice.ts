@@ -791,8 +791,9 @@ class VoiceEngine {
     if (!navigator.mediaDevices?.getDisplayMedia) return 'Screen sharing isn’t available here. Use the Office desktop app.';
     // Capture at up to 1080p: Retina screens are several times that, and every extra pixel
     // costs encoding time, which shows up as stutter.
+    const fps = mode === 'game' ? 60 : 30;
     const video: MediaTrackConstraints = {
-      frameRate: { ideal: 30, max: 30 },
+      frameRate: { ideal: fps, max: fps },
       width: { max: MAX_SCREEN_WIDTH },
       height: { max: MAX_SCREEN_HEIGHT },
     };
@@ -815,7 +816,7 @@ class VoiceEngine {
     if (!track) return 'Nothing was picked to share.';
     this.stopScreen(false);
     // "motion" keeps the frame rate up when things move; "detail" keeps text crisp.
-    track.contentHint = mode === 'smooth' ? 'motion' : 'detail';
+    track.contentHint = mode === 'sharp' ? 'detail' : 'motion';
     this.screenMode = mode;
     this.screenTrack = track;
     track.addEventListener('ended', () => this.stopScreen());
@@ -860,14 +861,21 @@ class VoiceEngine {
       const viewers = Math.max(1, this.peers.size);
       const { width = MAX_SCREEN_WIDTH, height = MAX_SCREEN_HEIGHT } = this.screenTrack.getSettings();
       const params = sender.getParameters();
-      // Smooth: drop resolution before frames. Sharp: the other way round.
-      params.degradationPreference = this.screenMode === 'smooth' ? 'maintain-framerate' : 'maintain-resolution';
+      // Sharp keeps every pixel and gives up frames; Games keeps every frame; Smooth trades a little
+      // of both. ("maintain-framerate" alone, with a low bitrate, shrank the picture to a blur.)
+      const mode = this.screenMode;
+      params.degradationPreference = mode === 'sharp' ? 'maintain-resolution' : mode === 'game' ? 'maintain-framerate' : 'balanced';
       if (params.encodings?.length) {
         const e = params.encodings[0];
-        e.maxBitrate = viewers === 1 ? 6_000_000 : viewers <= 3 ? 4_000_000 : viewers <= 7 ? 2_500_000 : 1_500_000;
-        e.maxFramerate = viewers <= 7 ? 30 : 20;
-        // In case the capture ignored the size limit, scale down when encoding instead.
-        e.scaleResolutionDownBy = Math.max(1, width / MAX_SCREEN_WIDTH, height / MAX_SCREEN_HEIGHT);
+        // A LAN has room to spare; games need far more bits than a still desktop.
+        const budget = mode === 'game' ? [12_000_000, 8_000_000, 4_000_000, 2_500_000] : [6_000_000, 4_000_000, 2_500_000, 1_500_000];
+        e.maxBitrate = viewers === 1 ? budget[0] : viewers <= 3 ? budget[1] : viewers <= 7 ? budget[2] : budget[3];
+        e.maxFramerate = mode === 'game' ? (viewers <= 3 ? 60 : 30) : viewers <= 7 ? 30 : 20;
+        // In case the capture ignored the size limit, scale down when encoding instead. Big rooms
+        // watching a game get 720p so every copy keeps its frame rate.
+        const maxW = mode === 'game' && viewers > 3 ? 1280 : MAX_SCREEN_WIDTH;
+        const maxH = mode === 'game' && viewers > 3 ? 720 : MAX_SCREEN_HEIGHT;
+        e.scaleResolutionDownBy = Math.max(1, width / maxW, height / maxH);
         e.priority = 'high';
         e.networkPriority = 'high';
       }
@@ -878,25 +886,51 @@ class VoiceEngine {
   }
 
   /** For troubleshooting smoothness: what is actually being sent and received. */
-  async screenStats() {
-    const out: Record<string, { direction: string; codec?: string; fps?: number; width?: number; height?: number; encoder?: string; decoder?: string; hardware?: boolean; limit?: string }> = {};
+  private lastBytes = new Map<string, { bytes: number; at: number }>();
+
+  async screenStats(): Promise<ScreenStat[]> {
+    const out: ScreenStat[] = [];
     for (const [id, peer] of this.peers) {
       const stats = await peer.pc.getStats();
       const codecs = new Map<string, string>();
-      stats.forEach((r) => r.type === 'codec' && codecs.set(r.id, r.mimeType));
+      let rtt: number | undefined;
+      let available: number | undefined;
+      let remote: { lost?: number; jitter?: number; rtt?: number } = {};
       stats.forEach((r) => {
-        if (r.kind !== 'video' || (r.type !== 'outbound-rtp' && r.type !== 'inbound-rtp') || !(r.framesPerSecond || r.framesEncoded || r.framesDecoded)) return;
-        out[`${id}:${r.type === 'outbound-rtp' ? 'out' : 'in'}`] = {
-          direction: r.type === 'outbound-rtp' ? 'sending' : 'receiving',
-          codec: codecs.get(r.codecId),
+        if (r.type === 'codec') codecs.set(r.id, r.mimeType);
+        if (r.type === 'candidate-pair' && r.nominated && r.state === 'succeeded') {
+          rtt = r.currentRoundTripTime;
+          available = r.availableOutgoingBitrate;
+        }
+        if (r.type === 'remote-inbound-rtp' && r.kind === 'video') remote = { lost: r.fractionLost, jitter: r.jitter, rtt: r.roundTripTime };
+      });
+      stats.forEach((r) => {
+        if (r.kind !== 'video' || (r.type !== 'outbound-rtp' && r.type !== 'inbound-rtp')) return;
+        const sending = r.type === 'outbound-rtp';
+        if (!(sending ? r.framesEncoded : r.framesDecoded)) return;
+        const bytes = sending ? r.bytesSent : r.bytesReceived;
+        const key = `${id}:${sending ? 'out' : 'in'}`;
+        const prev = this.lastBytes.get(key);
+        const now = performance.now();
+        this.lastBytes.set(key, { bytes, at: now });
+        const kbps = prev && now > prev.at ? Math.round(((bytes - prev.bytes) * 8) / (now - prev.at)) : undefined;
+        const lost = sending ? remote.lost : r.packetsLost / Math.max(1, r.packetsLost + r.packetsReceived);
+        out.push({
+          peerId: id,
+          direction: sending ? 'sending' : 'receiving',
+          codec: codecs.get(r.codecId)?.replace('video/', ''),
           fps: r.framesPerSecond,
           width: r.frameWidth,
           height: r.frameHeight,
-          encoder: r.encoderImplementation,
-          decoder: r.decoderImplementation,
-          hardware: r.powerEfficientEncoder ?? r.powerEfficientDecoder,
-          limit: r.qualityLimitationReason,
-        };
+          kbps,
+          implementation: sending ? r.encoderImplementation : r.decoderImplementation,
+          hardware: sending ? r.powerEfficientEncoder : r.powerEfficientDecoder,
+          limit: sending ? r.qualityLimitationReason : undefined,
+          lossPercent: lost === undefined ? undefined : Math.round(lost * 1000) / 10,
+          rttMs: rtt !== undefined ? Math.round(rtt * 1000) : remote.rtt !== undefined ? Math.round(remote.rtt * 1000) : undefined,
+          availableKbps: sending && available ? Math.round(available / 1000) : undefined,
+          freezes: sending ? undefined : r.freezeCount,
+        });
       });
     }
     return out;
@@ -942,15 +976,34 @@ class VoiceEngine {
   }
 }
 
-export type ScreenMode = 'smooth' | 'sharp';
+/** sharp: text and slides. smooth: everyday desktop. game: games and video, 60 fps. */
+export type ScreenMode = 'sharp' | 'smooth' | 'game';
+
+export interface ScreenStat {
+  peerId: string;
+  direction: 'sending' | 'receiving';
+  codec?: string;
+  fps?: number;
+  width?: number;
+  height?: number;
+  kbps?: number;
+  implementation?: string;
+  hardware?: boolean;
+  /** What the encoder says holds quality back: "bandwidth", "cpu" or "none". */
+  limit?: string;
+  lossPercent?: number;
+  rttMs?: number;
+  availableKbps?: number;
+  freezes?: number;
+}
 
 /**
  * WebRTC starts video around 300 kbit/s and probes upward, sized for the internet. On an office
  * LAN that makes the first seconds of a screen share blurry and choppy. These codec hints, read
  * by the other side's sender, start it high and keep a floor under it.
  */
-const VIDEO_START_KBPS = 3000;
-const VIDEO_MIN_KBPS = 800;
+const VIDEO_START_KBPS = 4000;
+const VIDEO_MIN_KBPS = 1500;
 
 function tuneSdp(sdp: string): string {
   const lines = sdp.split('\r\n');

@@ -1,10 +1,10 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { AppWindow, Expand, Gauge, Globe, Lock, Settings2, Type, Maximize2, Monitor, MonitorUp, PictureInPicture2, Radio, ScreenShare, Volume2, X } from 'lucide-react';
+import { Activity, AppWindow, Expand, Gamepad2, Gauge, Globe, Lock, Settings2, Type, Maximize2, Monitor, MonitorUp, PictureInPicture2, Radio, ScreenShare, Volume2, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { create } from 'zustand';
 import { desktop, type CaptureSource } from '../lib/desktop';
 import { useStore } from '../lib/store';
-import { useVoice, voice, type ScreenMode } from '../lib/voice';
+import { useVoice, voice, type ScreenMode, type ScreenStat } from '../lib/voice';
 import { Avatar } from './Avatar';
 import { Button, Modal, Segmented } from './ui';
 
@@ -44,13 +44,14 @@ const MODE_KEY = 'office.screenMode';
 
 function savedMode(): ScreenMode {
   try {
-    return localStorage.getItem(MODE_KEY) === 'sharp' ? 'sharp' : 'smooth';
+    const m = localStorage.getItem(MODE_KEY);
+    return m === 'sharp' || m === 'game' ? m : 'smooth';
   } catch {
     return 'smooth';
   }
 }
 
-/** Smooth motion or sharp text: the encoder can't maximize both when the computer is busy. */
+/** Crisp text, a balance, or smooth fast motion: the encoder can't maximize everything at once. */
 function ModeChoice({ value, onChange }: { value: ScreenMode; onChange: (m: ScreenMode) => void }) {
   return (
     <div className="mode-choice">
@@ -68,8 +69,9 @@ function ModeChoice({ value, onChange }: { value: ScreenMode; onChange: (m: Scre
           }
         }}
         options={[
-          { value: 'smooth', label: 'Smooth motion', icon: <Gauge size={13} />, title: 'Videos, scrolling, demos' },
-          { value: 'sharp', label: 'Sharp text', icon: <Type size={13} />, title: 'Code, documents, slides' },
+          { value: 'sharp', label: 'Text', icon: <Type size={13} />, title: 'Code, documents, slides: crisp, up to 30 fps' },
+          { value: 'smooth', label: 'Balanced', icon: <Gauge size={13} />, title: 'Everyday desktop and scrolling, 30 fps' },
+          { value: 'game', label: 'Games & video', icon: <Gamepad2 size={13} />, title: 'Fast motion at 60 fps, more bandwidth' },
         ]}
       />
     </div>
@@ -349,6 +351,7 @@ export function ScreenStage() {
   const remote = useVoice((s) => (sharerId ? s.screens[sharerId] : undefined));
   const mine = useVoice((s) => s.myScreen);
   const [size, setSize] = useState<'large' | 'small'>('large');
+  const [showStats, setShowStats] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   const video = useRef<HTMLVideoElement>(null);
   const isMe = !!sharerId && sharerId === meId;
@@ -380,6 +383,14 @@ export function ScreenStage() {
               <i className="stage__live">Live</i>
             </span>
             <span className="stage__actions">
+              <button
+                className={showStats ? 'is-on' : ''}
+                onClick={() => setShowStats(!showStats)}
+                title="Connection quality"
+                aria-label="Connection quality"
+              >
+                <Activity size={15} />
+              </button>
               {!isMe && (
                 <button
                   onClick={() => setSize(size === 'large' ? 'small' : 'large')}
@@ -403,11 +414,75 @@ export function ScreenStage() {
           </motion.header>
           <div className="stage__video" onDoubleClick={() => !isMe && void box.current?.requestFullscreen?.()}>
             <video ref={video} autoPlay playsInline muted />
+            <AnimatePresence>{showStats && <QualityPanel sharerId={sharerId!} isMe={isMe} />}</AnimatePresence>
           </div>
         </motion.div>
       )}
     </AnimatePresence>
   );
+}
+
+/** Live numbers for the screen share, with a plain verdict about what's holding quality back. */
+function QualityPanel({ sharerId, isMe }: { sharerId: string; isMe: boolean }) {
+  const users = useStore((s) => s.users);
+  const [stats, setStats] = useState<ScreenStat[]>([]);
+  useEffect(() => {
+    let alive = true;
+    const tick = () =>
+      void voice.screenStats().then((all) => {
+        if (!alive) return;
+        // The sharer sees what goes to each viewer; a viewer sees what arrives from the sharer.
+        setStats(all.filter((s) => (isMe ? s.direction === 'sending' : s.direction === 'receiving' && s.peerId === sharerId)));
+      });
+    tick();
+    const t = window.setInterval(tick, 1000);
+    return () => {
+      alive = false;
+      window.clearInterval(t);
+    };
+  }, [sharerId, isMe]);
+
+  return (
+    <motion.div className="quality" initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} onDoubleClick={(e) => e.stopPropagation()}>
+      {!stats.length && <span className="quality__empty">Measuring…</span>}
+      {stats.map((st) => (
+        <div key={st.peerId + st.direction} className="quality__block">
+          {isMe && <strong className="quality__who">To {users[st.peerId]?.displayName.split(' ')[0] ?? 'someone'}</strong>}
+          <span className={`quality__verdict quality__verdict--${verdict(st).tone}`}>{verdict(st).text}</span>
+          <dl>
+            <dt>Picture</dt>
+            <dd>
+              {st.width && st.height ? `${st.width}×${st.height}` : '–'} · {st.fps ?? '–'} fps
+            </dd>
+            <dt>Bitrate</dt>
+            <dd>
+              {st.kbps !== undefined ? `${(st.kbps / 1000).toFixed(1)} Mbit/s` : '–'}
+              {st.availableKbps ? ` of ${(st.availableKbps / 1000).toFixed(1)} available` : ''}
+            </dd>
+            <dt>Codec</dt>
+            <dd>
+              {st.codec ?? '–'}
+              {st.implementation ? ` · ${st.implementation}` : ''}
+              {st.hardware ? ' · hardware' : st.hardware === false ? ' · software' : ''}
+            </dd>
+            <dt>Network</dt>
+            <dd>
+              {st.rttMs !== undefined ? `${st.rttMs} ms` : '–'} · {st.lossPercent !== undefined ? `${st.lossPercent}% lost` : '–'}
+              {st.freezes ? ` · ${st.freezes} freezes` : ''}
+            </dd>
+          </dl>
+        </div>
+      ))}
+    </motion.div>
+  );
+}
+
+function verdict(st: ScreenStat): { tone: 'good' | 'warn' | 'bad'; text: string } {
+  if ((st.lossPercent ?? 0) >= 3) return { tone: 'bad', text: 'Packets are being lost on the network' };
+  if (st.limit === 'cpu') return { tone: 'bad', text: 'This computer is too busy encoding' };
+  if (st.limit === 'bandwidth') return { tone: 'warn', text: 'Limited by network bandwidth' };
+  if ((st.fps ?? 30) < 15) return { tone: 'warn', text: 'Low frame rate' };
+  return { tone: 'good', text: 'Full quality' };
 }
 
 /** The dock button: opens the picker, or stops your share. */
