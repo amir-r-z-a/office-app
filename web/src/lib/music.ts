@@ -18,15 +18,21 @@ interface MusicPrefs {
   volume: number;
   /** Lower the music while anyone in the room talks. */
   duck: boolean;
+  /** How much to lower it: 0.2 is a little, 0.9 is nearly silent. */
+  duckAmount: number;
+  /** Turn shared whole-computer sound almost silent while anyone talks, so nobody hears themselves. */
+  echoGuard: boolean;
 }
+
+const DEFAULT_PREFS: MusicPrefs = { volume: 0.7, duck: true, duckAmount: 0.7, echoGuard: true };
 
 const PREFS_KEY = 'office.music';
 
 function loadPrefs(): MusicPrefs {
   try {
-    return { volume: 0.7, duck: true, ...JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') };
+    return { ...DEFAULT_PREFS, ...JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') };
   } catch {
-    return { volume: 0.7, duck: true };
+    return DEFAULT_PREFS;
   }
 }
 
@@ -49,9 +55,9 @@ export const useMusic = create<MusicStore>(() => ({
 }));
 
 function savePrefs() {
-  const { volume, duck } = useMusic.getState();
+  const { volume, duck, duckAmount, echoGuard } = useMusic.getState();
   try {
-    localStorage.setItem(PREFS_KEY, JSON.stringify({ volume, duck }));
+    localStorage.setItem(PREFS_KEY, JSON.stringify({ volume, duck, duckAmount, echoGuard }));
   } catch {
     // Not remembered.
   }
@@ -77,7 +83,6 @@ export function useMyRoomMusic(): RoomMusic | undefined {
 
 const HARD_DRIFT = 0.35;
 const SOFT_DRIFT = 0.06;
-const DUCK_LEVEL = 0.28;
 const SYSTEM_ECHO_LEVEL = 0.06;
 
 function ramp(current: number, target: number, down: number, up: number): number {
@@ -110,7 +115,7 @@ class MusicPlayer {
       if (s.phase !== 'ready' && prev.phase === 'ready') this.stop();
     });
     useMusic.subscribe((s, prev) => {
-      if (s.volume !== prev.volume || s.duck !== prev.duck) this.applyVolume();
+      if (s.volume !== prev.volume || s.duck !== prev.duck || s.duckAmount !== prev.duckAmount || s.echoGuard !== prev.echoGuard) this.applyVolume();
     });
     useVoice.subscribe((s, prev) => {
       if (s.outputId !== prev.outputId || s.deafened !== prev.deafened) this.applyOutput();
@@ -239,8 +244,8 @@ class MusicPlayer {
   }
 
   private targetGain(): number {
-    const { volume, duck } = useMusic.getState();
-    return duck && this.talking() ? volume * DUCK_LEVEL : volume;
+    const { volume, duck, duckAmount } = useMusic.getState();
+    return duck && this.talking() ? volume * (1 - duckAmount) : volume;
   }
 
   /**
@@ -249,9 +254,9 @@ class MusicPlayer {
    * (the web player, a browser tab) hold no voices and fade like music.
    */
   private targetStreamGain(): number {
-    const { volume } = useMusic.getState();
+    const { volume, echoGuard } = useMusic.getState();
     const { music } = this.state();
-    if (music?.streamSource === 'system' && this.talking()) return volume * SYSTEM_ECHO_LEVEL;
+    if (echoGuard && music?.streamSource === 'system' && this.talking()) return volume * SYSTEM_ECHO_LEVEL;
     return this.targetGain();
   }
 
@@ -280,8 +285,9 @@ class MusicPlayer {
     savePrefs();
   }
 
-  setDuck(duck: boolean) {
-    useMusic.setState({ duck });
+  /** Change how music behaves while people talk. */
+  setDucking(patch: Partial<Pick<MusicPrefs, 'duck' | 'duckAmount' | 'echoGuard'>>) {
+    useMusic.setState(patch);
     savePrefs();
   }
 

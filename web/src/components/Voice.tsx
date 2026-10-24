@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useStore } from '../lib/store';
 import { useVoice, voice } from '../lib/voice';
 import { playDoorbell } from '../lib/sound';
+import { player, useMusic } from '../lib/music';
 import { Avatar } from './Avatar';
 import { Modal } from './ui';
 import { DockMusic } from './Music';
@@ -295,6 +296,8 @@ export function AudioSettings() {
         <Toggle label="Echo cancellation" hint="Keep on unless everyone wears headphones." checked={echoCancellation} onChange={(v) => voice.setProcessing({ echoCancellation: v })} />
       </div>
 
+      <WhileTalking />
+
       <div className="shortcuts">
         <span>
           <kbd>Ctrl</kbd>
@@ -308,6 +311,56 @@ export function AudioSettings() {
         </span>
       </div>
     </Modal>
+  );
+}
+
+/** How music and shared sound behave while people in the room talk. Saved per computer. */
+function WhileTalking() {
+  const { duck, duckAmount, echoGuard } = useMusic();
+  const label = duckAmount < 0.4 ? 'A little' : duckAmount < 0.75 ? 'Halfway' : 'A lot';
+  return (
+    <section className="settings-group">
+      <h3>While people talk</h3>
+      <div className="toggles">
+        <div className={`toggle-card ${duck ? 'is-on' : ''}`}>
+          <Toggle
+            label="Lower the music"
+            hint="Music and shared sound get quieter whenever someone in your room speaks."
+            checked={duck}
+            onChange={(v) => player.setDucking({ duck: v })}
+          />
+          <AnimatePresence initial={false}>
+            {duck && (
+              <motion.div className="duck-amount" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}>
+                <span className="duck-amount__label">
+                  How much <b>{label}</b>
+                </span>
+                <span className="duck-amount__range">
+                  <small>Less</small>
+                  <input
+                    type="range"
+                    min={0.2}
+                    max={0.9}
+                    step={0.05}
+                    value={duckAmount}
+                    onChange={(e) => player.setDucking({ duckAmount: Number(e.target.value) })}
+                    style={{ '--fill': `${((duckAmount - 0.2) / 0.7) * 100}%` } as React.CSSProperties}
+                    aria-label="How much to lower the music"
+                  />
+                  <small>More</small>
+                </span>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+        <Toggle
+          label="Echo protection"
+          hint="When someone shares their entire computer sound, it goes almost silent while anyone talks, so you don’t hear voices twice. Doesn’t affect the web player or music from the library."
+          checked={echoGuard}
+          onChange={(v) => player.setDucking({ echoGuard: v })}
+        />
+      </div>
+    </section>
   );
 }
 

@@ -291,7 +291,7 @@ function AudioChoice({ onDone }: { onDone: () => void }) {
         </span>
         <span className="audio-option__text">
           <strong>Entire computer sound</strong>
-          <span>Spotify, Apple Music or any app. It also carries the voices you hear, so Office turns it almost silent while anyone talks.</span>
+          <span>Spotify, Apple Music or any app. It also carries the voices you hear, so Office turns it almost silent while anyone talks (Echo protection, on by default).</span>
         </span>
         {busy === 'system' && <span className="spinner" />}
       </button>
