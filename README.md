@@ -107,6 +107,16 @@ npm run typecheck
 
 For apps to download updates, the repository's releases must be public.
 
+### Keeping Mac permissions across updates (recommended, free)
+
+macOS remembers permissions (microphone, screen and system audio recording) per code signature. Without an Apple Developer ID, each build gets a new signature, so after every update macOS treats Office as a new app and asks again. A self-signed certificate fixes that:
+
+1. On your Mac, run `bash scripts/make-mac-signing-cert.sh`. It creates a certificate in `~/office-signing` (keep that folder private) and prints two values.
+2. Add them as repository secrets on GitHub under **Settings → Secrets and variables → Actions**: `MAC_CERT_P12` and `MAC_CERT_PASSWORD`.
+3. Release as usual. Mac builds are now always signed with the same certificate. Grant permissions once more after installing that release; after that, updates keep them.
+
+macOS still says the app is from an unidentified developer the first time it opens. Removing that warning needs a paid Apple Developer ID.
+
 ## How it's built
 
 ```

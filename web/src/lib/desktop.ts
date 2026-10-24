@@ -28,6 +28,9 @@ export interface OfficeDesktop {
   capture?: {
     sources: (opts?: { width?: number; height?: number }) => Promise<CaptureSource[]>;
     choose: (choice: { sourceId: string | null; audio: 'none' | 'system' | 'player' }) => void;
+    /** macOS Screen Recording permission; missing before 0.2.1. */
+    access?: () => Promise<string>;
+    openSettings?: () => void;
   };
   player?: {
     open: (url: string) => Promise<boolean>;

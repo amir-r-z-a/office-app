@@ -1,4 +1,4 @@
-import { BrowserWindow, desktopCapturer, ipcMain, session, type DesktopCapturerSource } from 'electron';
+import { BrowserWindow, desktopCapturer, ipcMain, session, shell, systemPreferences, type DesktopCapturerSource } from 'electron';
 
 // What the app shares when the page asks for getDisplayMedia(). The page first shows its own
 // picker (screens and windows with live thumbnails), tells us the choice, then asks; the
@@ -26,6 +26,15 @@ let notifyPlayerClosed: () => void = () => undefined;
 
 export function setupCapture(getMainWindow: () => BrowserWindow | null) {
   notifyPlayerClosed = () => getMainWindow()?.webContents.send('office:player-closed');
+
+  // macOS only lets an app see other windows with Screen Recording permission. Asking for
+  // sources without it pops the system prompt, so the page checks this first.
+  ipcMain.handle('office:capture:access', () =>
+    process.platform === 'darwin' ? systemPreferences.getMediaAccessStatus('screen') : 'granted',
+  );
+  ipcMain.on('office:capture:settings', () => {
+    if (process.platform === 'darwin') void shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture');
+  });
 
   ipcMain.handle('office:capture:sources', async (_e, opts: { width?: number; height?: number } = {}): Promise<SourceInfo[]> => {
     const sources = await desktopCapturer.getSources({

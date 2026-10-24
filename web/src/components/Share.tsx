@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { AppWindow, Expand, Globe, Maximize2, Monitor, MonitorUp, PictureInPicture2, Radio, ScreenShare, Volume2, X } from 'lucide-react';
+import { AppWindow, Expand, Globe, Lock, Settings2, Maximize2, Monitor, MonitorUp, PictureInPicture2, Radio, ScreenShare, Volume2, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { create } from 'zustand';
 import { desktop, type CaptureSource } from '../lib/desktop';
@@ -48,18 +48,33 @@ function ScreenChoice({ onDone }: { onDone: () => void }) {
   const [withAudio, setWithAudio] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  const [access, setAccess] = useState<string>('checking');
+
   useEffect(() => {
-    if (!desktop?.capture) return;
+    const capture = desktop?.capture;
+    if (!capture) return;
     let alive = true;
+    let asked = false;
     const load = () =>
-      desktop!.capture!.sources({ width: 400, height: 250 }).then((list) => {
+      capture.sources({ width: 400, height: 250 }).then((list) => {
         if (!alive) return;
         setSources(list);
         setSelected((cur) => cur ?? list.find((s) => s.kind === 'screen')?.id ?? null);
       });
-    void load();
-    // Keep the thumbnails live while the picker is open.
-    const t = window.setInterval(() => void load(), 3000);
+    // Listing windows without permission makes macOS ask again, so check first, and only
+    // refresh thumbnails once access is granted.
+    const tick = async () => {
+      const status = capture.access ? await capture.access() : 'granted';
+      if (!alive) return;
+      setAccess(status);
+      if (status === 'granted') await load();
+      else if (status === 'not-determined' && !asked) {
+        asked = true;
+        await load().catch(() => undefined);
+      }
+    };
+    void tick();
+    const t = window.setInterval(() => void tick(), 2500);
     return () => {
       alive = false;
       window.clearInterval(t);
@@ -92,6 +107,8 @@ function ScreenChoice({ onDone }: { onDone: () => void }) {
       </div>
     );
   }
+
+  if (access === 'denied' || access === 'restricted') return <ScreenPermission onCancel={onDone} />;
 
   const list = (sources ?? []).filter((s) => s.kind === tab);
   return (
@@ -146,6 +163,40 @@ function ScreenChoice({ onDone }: { onDone: () => void }) {
           Share
         </Button>
       </div>
+    </div>
+  );
+}
+
+/** macOS hasn't allowed this copy of Office to record the screen yet. */
+function ScreenPermission({ onCancel }: { onCancel: () => void }) {
+  return (
+    <div className="permission">
+      <span className="permission__icon">
+        <Lock size={24} />
+      </span>
+      <strong>Allow Office to see your screen</strong>
+      <p>macOS needs your permission before Office can show your screen or windows to your room.</p>
+      <ol className="permission__steps">
+        <li>
+          Open <b>System Settings → Privacy &amp; Security → Screen &amp; System Audio Recording</b>.
+        </li>
+        <li>
+          Turn on <b>Office</b>. If it’s already on, select it, remove it with <b>−</b>, and come back here: that entry belongs to an older
+          version of Office.
+        </li>
+        <li>If macOS asks, choose <b>Quit &amp; Reopen</b>.</li>
+      </ol>
+      <div className="picker-footer">
+        <Button variant="ghost" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button variant="gradient" icon={<Settings2 size={16} />} onClick={() => desktop?.capture?.openSettings?.()}>
+          Open System Settings
+        </Button>
+      </div>
+      <span className="permission__waiting">
+        <span className="spinner" /> This continues by itself once access is on.
+      </span>
     </div>
   );
 }

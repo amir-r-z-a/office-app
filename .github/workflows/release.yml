@@ -51,6 +51,11 @@ jobs:
       matrix:
         os: [macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      # Optional: a self-signed certificate (scripts/make-mac-signing-cert.sh) keeps the Mac
+      # app's signature the same across updates, so macOS keeps its permissions.
+      MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 }}
+      MAC_CERT_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -58,8 +63,34 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Load the Mac signing certificate
+        if: runner.os == 'macOS' && env.MAC_CERT_P12 != ''
+        run: |
+          echo "$MAC_CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          security create-keychain -p ci "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p ci "$KEYCHAIN"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" -P "$MAC_CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k ci "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          # A self-signed certificate has to be trusted for code signing before codesign uses it.
+          openssl pkcs12 -in "$RUNNER_TEMP/cert.p12" -passin "pass:$MAC_CERT_PASSWORD" -nokeys -out "$RUNNER_TEMP/cert.pem" 2>/dev/null \
+            || openssl pkcs12 -legacy -in "$RUNNER_TEMP/cert.p12" -passin "pass:$MAC_CERT_PASSWORD" -nokeys -out "$RUNNER_TEMP/cert.pem"
+          sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain "$RUNNER_TEMP/cert.pem"
+          security find-identity -v -p codesigning "$KEYCHAIN"
+          echo "MAC_SIGNING=1" >> "$GITHUB_ENV"
       - name: Build the installer
-        run: npm run dist --workspace desktop
+        shell: bash
+        run: |
+          if [ "${MAC_SIGNING:-}" = "1" ]; then
+            npm run dist --workspace desktop -- "--config.mac.identity=Office Self-Signed"
+          else
+            npm run dist --workspace desktop
+          fi
+      - name: Check the Mac signature
+        if: runner.os == 'macOS'
+        run: codesign -dv --verbose=2 desktop/out/mac-universal/Office.app 2>&1 | grep -E "Identifier|Authority|Signature" || true
       - uses: actions/upload-artifact@v4
         with:
           name: office-${{ matrix.os }}

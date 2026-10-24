@@ -9,6 +9,8 @@ contextBridge.exposeInMainWorld('officeDesktop', {
   capture: {
     sources: (opts?: { width?: number; height?: number }) => ipcRenderer.invoke('office:capture:sources', opts),
     choose: (choice: { sourceId: string | null; audio: 'none' | 'system' | 'player' }) => ipcRenderer.send('office:capture:choose', choice),
+    access: () => ipcRenderer.invoke('office:capture:access') as Promise<string>,
+    openSettings: () => ipcRenderer.send('office:capture:settings'),
   },
   player: {
     open: (url: string) => ipcRenderer.invoke('office:player:open', url) as Promise<boolean>,
