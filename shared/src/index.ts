@@ -78,6 +78,48 @@ export type RtcSignal = { session: string } & (
   | { hello: true }
 );
 
+/** A song in the office library. */
+export interface Track {
+  id: string;
+  title: string;
+  artist: string;
+  album: string;
+  /** Seconds. */
+  duration: number;
+  uploadedBy: string | null;
+  /** Path of the album art, or null to draw a placeholder. */
+  coverUrl: string | null;
+  url: string;
+  createdAt: number;
+}
+
+export interface QueueItem {
+  id: string;
+  trackId: string;
+  addedBy: string;
+}
+
+export type RepeatMode = 'off' | 'all' | 'one';
+
+/**
+ * What's playing in a room. While playing, the position at server time `t` is
+ * `position + (t - anchorAt) / 1000`; while paused it is `position`.
+ */
+export interface RoomMusic {
+  roomId: string;
+  queue: QueueItem[];
+  /** Index into `queue` of the current song, or -1. */
+  index: number;
+  playing: boolean;
+  position: number;
+  anchorAt: number;
+  repeat: RepeatMode;
+  /** Someone sharing their computer's audio instead of the queue. */
+  streamerId: string | null;
+}
+
+export const MAX_UPLOAD_MB = 60;
+
 export type KnockOutcome = 'accepted' | 'declined' | 'expired' | 'cancelled' | 'nobody';
 
 export interface Snapshot {
@@ -87,6 +129,8 @@ export interface Snapshot {
   rooms: Room[];
   presence: Presence[];
   voice: VoiceState[];
+  library: Track[];
+  music: RoomMusic[];
 }
 
 /** Messages the app sends over the socket. */
@@ -101,6 +145,20 @@ export type ClientMessage =
   | { type: 'voice.set'; muted: boolean; deafened: boolean }
   | { type: 'voice.speaking'; speaking: boolean }
   | { type: 'rtc.signal'; to: string; signal: RtcSignal }
+  | { type: 'time.sync'; t0: number }
+  /** Music controls act on the room you're in. */
+  | { type: 'music.add'; trackIds: string[]; playNext?: boolean }
+  | { type: 'music.playNow'; trackId: string }
+  | { type: 'music.jump'; itemId: string }
+  | { type: 'music.remove'; itemId: string }
+  | { type: 'music.move'; itemId: string; toIndex: number }
+  | { type: 'music.clear' }
+  | { type: 'music.toggle'; playing: boolean }
+  | { type: 'music.seek'; position: number }
+  | { type: 'music.next' }
+  | { type: 'music.prev' }
+  | { type: 'music.repeat'; mode: RepeatMode }
+  | { type: 'music.stream'; on: boolean }
   | { type: 'ping' };
 
 /** Messages the server sends over the socket. */
@@ -118,6 +176,10 @@ export type ServerMessage =
   | { type: 'knock.pending'; knock: Knock }
   | { type: 'knock.resolved'; knockId: string; roomId: string; fromUserId: string; outcome: KnockOutcome; byUserId?: string }
   | { type: 'voice.state'; voice: VoiceState }
+  | { type: 'time.sync'; t0: number; server: number }
+  | { type: 'library.upsert'; track: Track }
+  | { type: 'library.remove'; trackId: string }
+  | { type: 'music.state'; music: RoomMusic }
   | { type: 'rtc.signal'; from: string; signal: RtcSignal }
   | { type: 'notice'; level: 'info' | 'error'; message: string }
   | { type: 'pong' };

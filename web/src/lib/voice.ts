@@ -67,7 +67,10 @@ interface Peer {
   ignoreOffer: boolean;
   /** Null on the answering side until the first offer arrives. */
   transceiver: RTCRtpTransceiver | null;
+  /** A second channel for someone sharing their computer's audio; silent until they do. */
+  streamTransceiver: RTCRtpTransceiver | null;
   audio: HTMLAudioElement;
+  streamAudio: HTMLAudioElement;
   /** The other side's app session; a new one means they reloaded and the call starts over. */
   remoteSession: string | null;
   /** Signals are handled one at a time, in order. */
@@ -115,6 +118,12 @@ class VoiceEngine {
       if (s.presence !== prev.presence || s.meId !== prev.meId) this.sync();
       if (s.connection === 'online' && prev.connection !== 'online') this.announce();
       if (s.phase !== 'ready' && prev.phase === 'ready') this.stopAll();
+      if (this.shareTrack && (s.music !== prev.music || s.presence !== prev.presence)) {
+        const room = s.meId ? s.presence[s.meId]?.roomId : null;
+        const music = room ? s.music[room] : undefined;
+        // Someone else took over, or we left: stop capturing without telling the server again.
+        if (!room || (music && music.streamerId !== s.meId && prev.music[room]?.streamerId === s.meId)) this.stopShare(!!room);
+      }
     });
     navigator.mediaDevices?.addEventListener?.('devicechange', () => void this.refreshDevices());
     window.addEventListener('keydown', (e) => {
@@ -169,7 +178,9 @@ class VoiceEngine {
     const offerer = meId > id;
     const audio = new Audio();
     audio.autoplay = true;
-    this.container?.append(audio);
+    const streamAudio = new Audio();
+    streamAudio.autoplay = true;
+    this.container?.append(audio, streamAudio);
     const peer: Peer = {
       id,
       pc,
@@ -178,7 +189,9 @@ class VoiceEngine {
       makingOffer: false,
       ignoreOffer: false,
       transceiver: null,
+      streamTransceiver: null,
       audio,
+      streamAudio,
       remoteSession: null,
       queue: Promise.resolve(),
     };
@@ -187,8 +200,10 @@ class VoiceEngine {
     this.applyOutput(peer);
 
     pc.ontrack = (e) => {
-      audio.srcObject = e.streams[0] ?? new MediaStream([e.track]);
-      void audio.play().catch(() => undefined);
+      // The offerer adds voice first and the stream channel second, so their mids are "0" and "1".
+      const el = e.transceiver.mid === '1' ? streamAudio : audio;
+      el.srcObject = new MediaStream([e.track]);
+      void el.play().catch(() => undefined);
     };
     pc.onicecandidate = (e) => this.signal(id, { candidate: e.candidate ? (e.candidate.toJSON() as RtcSignalCandidate) : null });
     pc.onnegotiationneeded = async () => {
@@ -221,8 +236,10 @@ class VoiceEngine {
     if (offerer) {
       // Adding the channel fires negotiationneeded, which sends the offer.
       peer.transceiver = pc.addTransceiver('audio', { direction: 'sendrecv' });
+      peer.streamTransceiver = pc.addTransceiver('audio', { direction: 'sendrecv' });
       const track = this.stream?.getAudioTracks()[0];
       if (track) void peer.transceiver.sender.replaceTrack(track);
+      if (this.shareTrack) void this.sendShare(peer);
     } else {
       // Let the offering side know we're here, in case it still holds a call with an older copy of us.
       this.signal(id, { hello: true });
@@ -236,12 +253,15 @@ class VoiceEngine {
     peer.pc.close();
     peer.audio.srcObject = null;
     peer.audio.remove();
+    peer.streamAudio.srcObject = null;
+    peer.streamAudio.remove();
     this.peers.delete(id);
     const { [id]: _gone, ...rest } = useVoice.getState().peers;
     useVoice.setState({ peers: rest });
   }
 
   private stopAll() {
+    this.stopShare(false);
     for (const id of [...this.peers.keys()]) this.closePeer(id);
     this.releaseMic();
   }
@@ -286,13 +306,14 @@ class VoiceEngine {
       await pc.setRemoteDescription(description);
       if (description.type === 'offer') {
         if (!peer.transceiver) {
-          // Answer on the channel the offer created, and send our mic back on it.
-          peer.transceiver = pc.getTransceivers().find((t) => t.receiver.track.kind === 'audio') ?? null;
-          if (peer.transceiver) {
-            peer.transceiver.direction = 'sendrecv';
-            const track = this.stream?.getAudioTracks()[0];
-            if (track) await peer.transceiver.sender.replaceTrack(track);
-          }
+          // Answer on the channels the offer created: voice first, then the stream channel.
+          const [voiceT, streamT] = pc.getTransceivers();
+          peer.transceiver = voiceT ?? null;
+          peer.streamTransceiver = streamT ?? null;
+          for (const t of [voiceT, streamT]) if (t) t.direction = 'sendrecv';
+          const track = this.stream?.getAudioTracks()[0];
+          if (track && voiceT) await voiceT.sender.replaceTrack(track);
+          if (this.shareTrack) await this.sendShare(peer);
         }
         await pc.setLocalDescription();
         if (pc.localDescription) this.signal(peer.id, { description: pc.localDescription.toJSON() as RtcSignalDescription });
@@ -566,8 +587,83 @@ class VoiceEngine {
     const { outputId, volumes, deafened } = useVoice.getState();
     peer.audio.volume = volumes[peer.id] ?? 1;
     peer.audio.muted = deafened;
-    const el = peer.audio as HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> };
-    if (el.setSinkId) void el.setSinkId(outputId).catch(() => undefined);
+    peer.streamAudio.volume = this.streamVolume;
+    peer.streamAudio.muted = deafened;
+    for (const el of [peer.audio, peer.streamAudio] as (HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> })[]) {
+      if (el.setSinkId) void el.setSinkId(outputId).catch(() => undefined);
+    }
+  }
+
+  // Sharing your computer's audio
+
+  private shareTrack: MediaStreamTrack | null = null;
+  private streamVolume = 0.7;
+
+  /** Shared audio plays at the music volume, ducked like music. */
+  setStreamVolume(volume: number) {
+    this.streamVolume = Math.max(0, Math.min(1, volume));
+    for (const peer of this.peers.values()) peer.streamAudio.volume = this.streamVolume;
+  }
+
+  private async sendShare(peer: Peer) {
+    const sender = peer.streamTransceiver?.sender;
+    if (!sender) return;
+    await sender.replaceTrack(this.shareTrack);
+    try {
+      // Music needs more room than speech.
+      const params = sender.getParameters();
+      if (params.encodings?.length) {
+        params.encodings[0].maxBitrate = 160_000;
+        await sender.setParameters(params);
+      }
+    } catch {
+      // Older engines: the default bitrate still works.
+    }
+  }
+
+  /**
+   * Start sending what this computer is playing to everyone in the room. In the desktop app this
+   * captures system audio; in a browser, pick a tab or screen and tick "share audio".
+   */
+  async startShare(captured?: MediaStream): Promise<string | null> {
+    if (this.shareTrack) return null;
+    let stream = captured;
+    if (!stream) {
+      if (!navigator.mediaDevices?.getDisplayMedia) return 'Sharing audio isn’t available here. Use the Office desktop app.';
+      try {
+        stream = await navigator.mediaDevices.getDisplayMedia({
+          video: true,
+          audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+          // Ask the browser to leave out its own sound (our voices), where it can.
+          systemAudio: 'include',
+          ...({ restrictOwnAudio: true, selfBrowserSurface: 'exclude' } as object),
+        } as DisplayMediaStreamOptions);
+      } catch (err) {
+        return (err as DOMException).name === 'NotAllowedError' ? null : 'Couldn’t capture your computer’s audio.';
+      }
+    }
+    // Only the sound is wanted; drop any video the capture came with.
+    stream.getVideoTracks().forEach((t) => t.stop());
+    const track = stream.getAudioTracks()[0];
+    if (!track) return 'No audio was shared. Choose a screen or tab and turn on “Share audio”.';
+    track.contentHint = 'music';
+    this.shareTrack = track;
+    track.addEventListener('ended', () => this.stopShare());
+    for (const peer of this.peers.values()) await this.sendShare(peer);
+    useStore.getState().send({ type: 'music.stream', on: true });
+    return null;
+  }
+
+  stopShare(tellServer = true) {
+    if (!this.shareTrack) return;
+    this.shareTrack.stop();
+    this.shareTrack = null;
+    for (const peer of this.peers.values()) void peer.streamTransceiver?.sender.replaceTrack(null);
+    if (tellServer && useStore.getState().connection === 'online') useStore.getState().send({ type: 'music.stream', on: false });
+  }
+
+  get sharing() {
+    return !!this.shareTrack;
   }
 
   async refreshDevices() {
@@ -586,8 +682,10 @@ class VoiceEngine {
     for (const [id, peer] of this.peers) {
       let bytesReceived = 0;
       let bytesSent = 0;
+      let streamBytes = 0;
       (await peer.pc.getStats()).forEach((r) => {
-        if (r.type === 'inbound-rtp' && r.kind === 'audio') bytesReceived += r.bytesReceived ?? 0;
+        if (r.type === 'inbound-rtp' && r.kind === 'audio' && r.mid === '1') streamBytes += r.bytesReceived ?? 0;
+        else if (r.type === 'inbound-rtp' && r.kind === 'audio') bytesReceived += r.bytesReceived ?? 0;
         if (r.type === 'outbound-rtp' && r.kind === 'audio') bytesSent += r.bytesSent ?? 0;
       });
       out[id] = {
@@ -601,6 +699,7 @@ class VoiceEngine {
         ice: peer.pc.iceConnectionState,
         gathering: peer.pc.iceGatheringState,
         transceivers: peer.pc.getTransceivers().length,
+        streamBytes,
       } as typeof out[string];
     }
     return out;

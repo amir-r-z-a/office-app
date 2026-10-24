@@ -3,9 +3,10 @@ import fastifyStatic from '@fastify/static';
 import { WebSocketServer } from 'ws';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { parseBuffer } from 'music-metadata';
 import { join } from 'node:path';
 import { z } from 'zod';
-import { HUES, LOCK_MODES, ROOM_KINDS, type Room, type User } from '@office/shared';
+import { HUES, LOCK_MODES, MAX_UPLOAD_MB, ROOM_KINDS, type Room, type User } from '@office/shared';
 import { Db } from './db.js';
 import { Hub } from './hub.js';
 import { hashPassword, Tokens, verifyPassword } from './auth.js';
@@ -48,11 +49,18 @@ declare module 'fastify' {
 
 export async function buildApp(opts: AppOptions) {
   mkdirSync(join(opts.dataDir, 'avatars'), { recursive: true });
+  const musicDir = join(opts.dataDir, 'music', 'files');
+  const coverDir = join(opts.dataDir, 'music', 'covers');
+  mkdirSync(musicDir, { recursive: true });
+  mkdirSync(coverDir, { recursive: true });
   const db = new Db(join(opts.dataDir, 'office.db'));
   const hub = new Hub(db);
   const tokens = new Tokens(loadSecret(opts.dataDir));
   const app = Fastify({ logger: opts.logger ?? false, bodyLimit: 1024 * 1024 });
 
+  for (const type of [/^audio\//, 'application/octet-stream']) {
+    app.addContentTypeParser(type, { parseAs: 'buffer', bodyLimit: MAX_UPLOAD_MB * 1024 * 1024 }, (_req, body, done) => done(null, body));
+  }
   app.addContentTypeParser(['image/webp', 'image/png', 'image/jpeg'], { parseAs: 'buffer' }, (_req, body, done) =>
     done(null, body),
   );
@@ -257,6 +265,71 @@ export async function buildApp(opts: AppOptions) {
     return floor;
   });
 
+  // Music library
+
+  app.post('/api/music', { preHandler: authenticate, bodyLimit: MAX_UPLOAD_MB * 1024 * 1024 }, async (req, reply) => {
+    const body = req.body;
+    if (!Buffer.isBuffer(body) || !body.length) return reply.code(400).send({ error: 'Send the song as an audio file.' });
+    const filename = decodeURIComponent(String(req.headers['x-filename'] ?? 'Untitled'));
+    const ext = audioExtension(filename, String(req.headers['content-type'] ?? ''));
+    if (!ext) return reply.code(415).send({ error: `${filename}: use MP3, M4A, AAC, OGG, Opus, FLAC, WAV or WebM.` });
+
+    let meta;
+    try {
+      meta = await parseBuffer(body, { mimeType: String(req.headers['content-type'] ?? ''), size: body.length }, { duration: true });
+    } catch {
+      return reply.code(415).send({ error: `${filename} doesn’t look like a song this server can read.` });
+    }
+    const duration = meta.format.duration;
+    if (!duration || !Number.isFinite(duration)) return reply.code(415).send({ error: `Couldn’t work out how long ${filename} is.` });
+
+    const id = randomUUID();
+    writeFileSync(join(musicDir, `${id}${ext}`), body);
+    let cover: string | null = null;
+    const picture = meta.common.picture?.[0];
+    if (picture?.data?.length) {
+      const coverExt = picture.format.includes('png') ? '.png' : picture.format.includes('webp') ? '.webp' : '.jpg';
+      cover = `${id}${coverExt}`;
+      writeFileSync(join(coverDir, cover), picture.data);
+    }
+    const fallbackTitle = filename.replace(/\.[^.]+$/, '').replace(/[_]+/g, ' ').trim() || 'Untitled';
+    const track = db.insertTrack({
+      id,
+      title: (meta.common.title || fallbackTitle).slice(0, 120),
+      artist: (meta.common.artist || meta.common.albumartist || '').slice(0, 120),
+      album: (meta.common.album || '').slice(0, 120),
+      duration,
+      file: `${id}${ext}`,
+      cover,
+      uploadedBy: req.user!.id,
+    });
+    hub.libraryChanged(track);
+    return track;
+  });
+
+  const canEditTrack = (user: User, uploadedBy: string | null) => user.role === 'admin' || uploadedBy === user.id;
+
+  app.patch<{ Params: { id: string } }>('/api/music/:id', { preHandler: authenticate }, async (req, reply) => {
+    const track = db.getTrack(req.params.id);
+    if (!track) return reply.code(404).send({ error: 'No such song.' });
+    if (!canEditTrack(req.user!, track.uploadedBy)) return reply.code(403).send({ error: 'Only the person who added this song, or an admin, can change it.' });
+    const body = z.object({ title: z.string().trim().min(1).max(120).optional(), artist: z.string().trim().max(120).optional() }).parse(req.body);
+    const updated = db.updateTrack(track.id, body)!;
+    hub.libraryChanged(updated);
+    return updated;
+  });
+
+  app.delete<{ Params: { id: string } }>('/api/music/:id', { preHandler: authenticate }, async (req, reply) => {
+    const track = db.getTrack(req.params.id);
+    if (!track) return reply.code(404).send({ error: 'No such song.' });
+    if (!canEditTrack(req.user!, track.uploadedBy)) return reply.code(403).send({ error: 'Only the person who added this song, or an admin, can remove it.' });
+    db.deleteTrack(track.id);
+    rmSync(join(musicDir, track.file), { force: true });
+    if (track.cover) rmSync(join(coverDir, track.cover), { force: true });
+    hub.libraryRemoved(track.id);
+    return { ok: true };
+  });
+
   // Files
 
   await app.register(fastifyStatic, {
@@ -266,10 +339,13 @@ export async function buildApp(opts: AppOptions) {
     maxAge: '365d',
     immutable: true,
   });
+  // Song files are served with range requests, so players can seek without downloading everything.
+  await app.register(fastifyStatic, { root: musicDir, prefix: '/music/files/', decorateReply: false, maxAge: '365d', immutable: true });
+  await app.register(fastifyStatic, { root: coverDir, prefix: '/music/covers/', decorateReply: false, maxAge: '365d', immutable: true });
   if (opts.webDir && existsSync(opts.webDir)) {
     await app.register(fastifyStatic, { root: opts.webDir, prefix: '/' });
     app.setNotFoundHandler((req, reply) => {
-      if (req.url.startsWith('/api/') || req.url.startsWith('/avatars/')) return reply.code(404).send({ error: 'Not found.' });
+      if (req.url.startsWith('/api/') || req.url.startsWith('/avatars/') || req.url.startsWith('/music/')) return reply.code(404).send({ error: 'Not found.' });
       return reply.type('text/html').send(readFileSync(join(opts.webDir!, 'index.html')));
     });
   }
@@ -294,6 +370,30 @@ export async function buildApp(opts: AppOptions) {
   });
 
   return { app, db, hub, tokens };
+}
+
+const AUDIO_TYPES: Record<string, string> = {
+  'audio/mpeg': '.mp3',
+  'audio/mp3': '.mp3',
+  'audio/mp4': '.m4a',
+  'audio/x-m4a': '.m4a',
+  'audio/aac': '.aac',
+  'audio/ogg': '.ogg',
+  'audio/opus': '.opus',
+  'audio/flac': '.flac',
+  'audio/x-flac': '.flac',
+  'audio/wav': '.wav',
+  'audio/x-wav': '.wav',
+  'audio/wave': '.wav',
+  'audio/webm': '.webm',
+};
+const AUDIO_EXTENSIONS = new Set(['.mp3', '.m4a', '.aac', '.ogg', '.oga', '.opus', '.flac', '.wav', '.webm']);
+
+/** The file extension to store a song under, from its name or its type; null if it isn't audio we play. */
+function audioExtension(filename: string, contentType: string): string | null {
+  const fromName = filename.match(/\.[a-z0-9]+$/i)?.[0].toLowerCase();
+  if (fromName && AUDIO_EXTENSIONS.has(fromName)) return fromName;
+  return AUDIO_TYPES[contentType.split(';')[0].trim().toLowerCase()] ?? null;
 }
 
 function loadSecret(dataDir: string): string {

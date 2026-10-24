@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import type { Floor, Hue, LockMode, Role, Room, RoomKind, Status, User } from '@office/shared';
+import type { Floor, Hue, LockMode, Role, Room, RoomKind, Status, Track, User } from '@office/shared';
 
 interface UserRow {
   id: string;
@@ -55,6 +55,17 @@ CREATE TABLE IF NOT EXISTS rooms (
   lock_mode TEXT NOT NULL DEFAULT 'knock',
   capacity INTEGER NOT NULL DEFAULT 4,
   x REAL NOT NULL, y REAL NOT NULL, w REAL NOT NULL, h REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS tracks (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  artist TEXT NOT NULL DEFAULT '',
+  album TEXT NOT NULL DEFAULT '',
+  duration REAL NOT NULL,
+  file TEXT NOT NULL,
+  cover TEXT,
+  uploaded_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+  created_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
@@ -192,6 +203,37 @@ export class Db {
   }
 
 
+  // Music library
+
+  listTracks(): Track[] {
+    return (this.db.prepare('SELECT * FROM tracks ORDER BY created_at DESC').all() as unknown as TrackRow[]).map(toTrack);
+  }
+
+  getTrack(id: string): (Track & { file: string; cover: string | null }) | undefined {
+    const row = this.db.prepare('SELECT * FROM tracks WHERE id = ?').get(id) as TrackRow | undefined;
+    return row && { ...toTrack(row), file: row.file, cover: row.cover };
+  }
+
+  insertTrack(t: { id: string; title: string; artist: string; album: string; duration: number; file: string; cover: string | null; uploadedBy: string }): Track {
+    this.db
+      .prepare(
+        `INSERT INTO tracks (id, title, artist, album, duration, file, cover, uploaded_by, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(t.id, t.title, t.artist, t.album, t.duration, t.file, t.cover, t.uploadedBy, Date.now());
+    return this.getTrack(t.id)!;
+  }
+
+  updateTrack(id: string, patch: { title?: string; artist?: string }): Track | undefined {
+    if (patch.title !== undefined) this.db.prepare('UPDATE tracks SET title = ? WHERE id = ?').run(patch.title, id);
+    if (patch.artist !== undefined) this.db.prepare('UPDATE tracks SET artist = ? WHERE id = ?').run(patch.artist, id);
+    return this.getTrack(id);
+  }
+
+  deleteTrack(id: string): void {
+    this.db.prepare('DELETE FROM tracks WHERE id = ?').run(id);
+  }
+
   // Settings
 
   getSetting(key: string): string | undefined {
@@ -227,6 +269,32 @@ function toUser(r: UserRow): User {
     avatarUrl: r.avatar_version ? `/avatars/${r.id}.webp?v=${r.avatar_version}` : null,
     status: r.status,
     statusText: r.status_text,
+  };
+}
+
+interface TrackRow {
+  id: string;
+  title: string;
+  artist: string;
+  album: string;
+  duration: number;
+  file: string;
+  cover: string | null;
+  uploaded_by: string | null;
+  created_at: number;
+}
+
+function toTrack(r: TrackRow): Track {
+  return {
+    id: r.id,
+    title: r.title,
+    artist: r.artist,
+    album: r.album,
+    duration: r.duration,
+    uploadedBy: r.uploaded_by,
+    coverUrl: r.cover ? `/music/covers/${r.cover}` : null,
+    url: `/music/files/${r.file}`,
+    createdAt: r.created_at,
   };
 }
 

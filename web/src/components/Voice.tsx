@@ -6,6 +6,7 @@ import { useVoice, voice } from '../lib/voice';
 import { playDoorbell } from '../lib/sound';
 import { Avatar } from './Avatar';
 import { Modal } from './ui';
+import { DockMusic } from './Music';
 
 /** The voice state of one person as everyone sees it, plus whether it's me. */
 export function useVoiceOf(userId: string) {
@@ -76,6 +77,7 @@ export function VoiceDock() {
           )}
 
           <div className="dock__controls">
+            <DockMusic />
             <MicButton muted={muted || deafened} mic={mic} speaking={!!voiceStates[meId]?.speaking} />
             <DockButton
               label={deafened ? 'Turn sound back on (Ctrl+Shift+D)' : 'Turn off sound (Ctrl+Shift+D)'}

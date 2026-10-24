@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { ClientMessage, Floor, Knock, Presence, Room, RtcSignal, ServerMessage, User, VoiceState } from '@office/shared';
+import type { ClientMessage, Floor, Knock, Presence, Room, RoomMusic, RtcSignal, ServerMessage, Track, User, VoiceState } from '@office/shared';
 import { api, ApiError, getToken, setToken } from './api';
 import { desktop } from './desktop';
 import { playDecline, playDoorbell, playLeave, playPop } from './sound';
@@ -25,6 +25,8 @@ interface State {
   rooms: Record<string, Room>;
   presence: Record<string, Presence>;
   voice: Record<string, VoiceState>;
+  library: Record<string, Track>;
+  music: Record<string, RoomMusic>;
   incoming: Knock[];
   outgoing: Knock | null;
   toasts: Toast[];
@@ -53,9 +55,16 @@ let pingTimer: number | undefined;
 let wanted = false;
 let rtcHandler: ((from: string, signal: RtcSignal) => void) | null = null;
 
+let timeSyncHandler: ((t0: number, server: number) => void) | null = null;
+
 /** The voice engine takes call signals from here; set once at startup. */
 export function onRtcSignal(handler: (from: string, signal: RtcSignal) => void) {
   rtcHandler = handler;
+}
+
+/** The music player takes clock-sync replies from here. */
+export function onTimeSync(handler: (t0: number, server: number) => void) {
+  timeSyncHandler = handler;
 }
 
 export const useStore = create<State>((set, get) => ({
@@ -68,6 +77,8 @@ export const useStore = create<State>((set, get) => ({
   rooms: {},
   presence: {},
   voice: {},
+  library: {},
+  music: {},
   incoming: [],
   outgoing: null,
   toasts: [],
@@ -105,7 +116,7 @@ export const useStore = create<State>((set, get) => ({
     setToken(null);
     socket?.close();
     socket = null;
-    set({ phase: 'login', meId: null, users: {}, rooms: {}, presence: {}, voice: {}, incoming: [], outgoing: null, view: 'office', selectedRoomId: null });
+    set({ phase: 'login', meId: null, users: {}, rooms: {}, presence: {}, voice: {}, library: {}, music: {}, incoming: [], outgoing: null, view: 'office', selectedRoomId: null });
   },
 
   send: (msg) => {
@@ -173,6 +184,8 @@ function handle(msg: ServerMessage) {
         rooms: Object.fromEntries(snapshot.rooms.map((r) => [r.id, r])),
         presence: Object.fromEntries(snapshot.presence.map((p) => [p.userId, p])),
         voice: Object.fromEntries(snapshot.voice.map((v) => [v.userId, v])),
+        library: Object.fromEntries(snapshot.library.map((t) => [t.id, t])),
+        music: Object.fromEntries(snapshot.music.map((m) => [m.roomId, m])),
         incoming: [],
         outgoing: null,
       });
@@ -210,6 +223,25 @@ function handle(msg: ServerMessage) {
     case 'rtc.signal':
       rtcHandler?.(msg.from, msg.signal);
       return;
+    case 'time.sync':
+      timeSyncHandler?.(msg.t0, msg.server);
+      return;
+    case 'library.upsert':
+      return set({ library: { ...s.library, [msg.track.id]: msg.track } });
+    case 'library.remove': {
+      const { [msg.trackId]: _t, ...library } = s.library;
+      return set({ library });
+    }
+    case 'music.state': {
+      const before = s.music[msg.music.roomId];
+      set({ music: { ...s.music, [msg.music.roomId]: msg.music } });
+      const myRoom = s.meId ? s.presence[s.meId]?.roomId : null;
+      // Tell people in the room when someone starts sharing their computer's audio.
+      if (myRoom === msg.music.roomId && msg.music.streamerId && msg.music.streamerId !== before?.streamerId && msg.music.streamerId !== s.meId) {
+        s.toast({ tone: 'info', title: `${name(msg.music.streamerId)} is sharing their audio`, userId: msg.music.streamerId });
+      }
+      return;
+    }
     case 'knock.incoming':
       if (!s.incoming.some((k) => k.id === msg.knock.id)) {
         set({ incoming: [...s.incoming, msg.knock] });
@@ -262,3 +294,6 @@ export function occupantsOf(presence: Record<string, Presence>, roomId: string):
     .filter((p) => p.online && p.roomId === roomId)
     .map((p) => p.userId);
 }
+
+// For troubleshooting from the developer console.
+(window as unknown as { __send: State['send'] }).__send = (msg) => useStore.getState().send(msg);

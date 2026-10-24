@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --target=node22 --external:fastify --external:@fastify/static --external:ws --external:zod --outfile=dist/index.js",
+    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --target=node22 --external:fastify --external:@fastify/static --external:ws --external:zod --external:music-metadata --outfile=dist/index.js",
     "start": "node --no-warnings=ExperimentalWarning dist/index.js",
     "typecheck": "tsc -p .",
     "test": "node --no-warnings=ExperimentalWarning --import tsx --test test/*.test.ts"
@@ -13,6 +13,7 @@
   "dependencies": {
     "@fastify/static": "^10.1.7",
     "fastify": "^5.12.7",
+    "music-metadata": "^12.2.3",
     "ws": "^8.22.0",
     "zod": "^4.6.7"
   },

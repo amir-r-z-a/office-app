@@ -67,5 +67,6 @@ export const api = {
   createRoom: (body: RoomInput) => request<Room>('POST', '/api/rooms', body),
   updateRoom: (id: string, body: Partial<RoomInput>) => request<Room>('PATCH', `/api/rooms/${id}`, body),
   deleteRoom: (id: string) => request<{ ok: true }>('DELETE', `/api/rooms/${id}`),
+  deleteTrack: (id: string) => request<{ ok: true }>('DELETE', `/api/music/${id}`),
   updateFloor: (floor: Floor) => request<Floor>('PUT', '/api/floor', floor),
 };

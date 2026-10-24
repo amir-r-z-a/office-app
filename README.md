@@ -2,7 +2,7 @@
 
 A virtual office for your team's local network. Everyone has a room on an interactive floor plan, so you can see who's around, ring a coworker's doorbell, and walk in to talk. It runs entirely on your office Wi-Fi: one computer is the server, and everyone else uses the desktop app.
 
-> **Status: Phase 2 of 6.** Done so far: the office map, presence, statuses, doorbells, room locks, profiles, the admin area, and voice. Coming next: music, messaging, meeting rooms with screen sharing, and installers. See the [roadmap](#roadmap).
+> **Status: Phase 3 of 6.** Done so far: the office map, presence, statuses, doorbells, room locks, profiles, the admin area, voice, and music. Coming next: messaging, meeting rooms with screen sharing, and installers. See the [roadmap](#roadmap).
 
 | Light | Dark |
 | --- | --- |
@@ -10,6 +10,7 @@ A virtual office for your team's local network. Everyone has a room on an intera
 | ![A room's side panel](docs/screenshots/panel-light.png) | ![A doorbell ringing](docs/screenshots/doorbell-dark.png) |
 | ![Managing people](docs/screenshots/people-light.png) | ![The floor plan editor](docs/screenshots/editor-dark.png) |
 | ![In a call, with the voice dock](docs/screenshots/voice-light.png) | ![Per-person volume in a call](docs/screenshots/voice-dark.png) |
+| ![The room's music queue](docs/screenshots/music-queue-dark.png) | ![Someone sharing their computer's audio](docs/screenshots/music-share-dark.png) |
 
 ## What it does today
 
@@ -20,6 +21,12 @@ A virtual office for your team's local network. Everyone has a room on an intera
   - Audio settings let you pick the microphone and speakers, check your level on a live meter, and switch noise suppression and echo cancellation.
   - Shortcuts: **Ctrl+Shift+M** mutes, **Ctrl+Shift+D** turns sound off (Cmd on a Mac). If you talk while muted, the app reminds you.
   - Your mic only switches on while someone else is in your room, so the system's "mic in use" light goes off when you're alone.
+- **Music.** Every room has its own player, and everyone inside hears the same song at the same moment.
+  - **Library:** one for the whole office. Drop MP3, M4A, FLAC, OGG, Opus, WAV or WebM files onto the music panel (up to 60 MB each). Titles, artists and album art are read from the files.
+  - **Queue:** play now, play next, add to queue, drag to reorder, repeat the queue or one song. Anyone in the room can control it.
+  - **Share your computer's audio:** whatever plays on your computer (Spotify, YouTube…) is heard by everyone in the room. The queue waits while you share.
+  - **Volume:** music has its own volume and fades down while people talk (you can turn that off). The map shows what's playing in every room.
+  - **Empty rooms:** the music pauses when everyone leaves and picks up there when someone comes back.
 - **Statuses.** Available, Busy, Away or Do not disturb, plus a custom status line. Do not disturb locks your door and silences your doorbell.
 - **Profiles.** Name, title, color, emoji or uploaded photo, and password.
 - **Admin area.** Add and remove people (with generated passwords and an automatic personal room), and edit the floor plan by dragging, resizing, recoloring and assigning rooms.
@@ -50,7 +57,7 @@ Open that address. The first visit asks you to set up the office and create the 
 | --- | --- | --- |
 | `PORT` | `4000` | Port to listen on |
 | `HOST` | `0.0.0.0` | Interface to listen on (all, so the LAN can reach it) |
-| `DATA_DIR` | `server/data` | Where the database, avatars and signing key live. Back this folder up. |
+| `DATA_DIR` | `server/data` | Where the database, avatars, music and signing key live. Back this folder up. |
 
 If coworkers can't connect, allow port 4000 through the server computer's firewall (on Windows, accept the prompt the first time Node starts).
 
@@ -84,6 +91,8 @@ desktop/  Electron shell that loads the UI from the office server
 - The server keeps users, rooms and the floor in SQLite, and keeps live state in memory: who's online, where everyone is, and doorbells in flight. Every change is pushed to every app over one WebSocket.
 - The desktop app loads the UI from the server, so updating the server updates everyone.
 - Voice is peer to peer over WebRTC. Everyone in a room has a direct audio link to each other person there, negotiated through the server, which only relays between people in the same room. On a LAN no STUN or TURN server is needed, and audio never passes through the server.
+- Music sync: the server owns each room's queue and the position of the current song, and moves to the next song when one ends. Each app estimates the server clock from a few round trips, then keeps its player within about a tenth of a second by nudging the speed, or jumping if it's far off. Song files are served with range requests, so seeking doesn't download the whole file.
+- Sharing audio uses a second channel on the voice connections that stays silent until someone shares, so starting a share needs no renegotiation.
 - Browsers only allow the microphone on secure pages. The desktop app allows it for your office server. In a plain browser, voice works at `http://localhost` (on the server computer itself) or behind HTTPS.
 - Passwords are hashed with scrypt, and sessions are signed tokens.
 - No internet access is needed at runtime. Fonts and sounds are bundled or synthesized.
@@ -92,7 +101,7 @@ desktop/  Electron shell that loads the UI from the office server
 
 1. ✅ **Core:** sign-in, admin, floor plan editor, live map, presence, statuses, doorbells, locks
 2. ✅ **Voice:** talk with everyone in your room, mute, sound off, per-person volume, device settings
-3. **Music:** a shared library with uploads and a synced queue per room, plus streaming your computer's own audio
+3. ✅ **Music:** shared library, synced queue per room, sharing your computer's audio
 4. **Messaging:** direct messages, room chat, an office channel, unread badges and notifications
 5. **Meeting rooms and screen sharing**
 6. **Packaging:** Windows/macOS installers and a one-step server setup

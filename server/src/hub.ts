@@ -10,10 +10,12 @@ import {
   type Presence,
   type Room,
   type ServerMessage,
+  type Track,
   type User,
   type VoiceState,
 } from '@office/shared';
 import type { Db } from './db.js';
+import { MusicRooms } from './music.js';
 
 /** How long someone keeps their place after their last connection drops (a reload, a Wi-Fi blip). */
 const DISCONNECT_GRACE_MS = 8_000;
@@ -30,7 +32,11 @@ export class Hub {
   private knocks = new Map<string, PendingKnock>();
   private voice = new Map<string, VoiceState>();
 
-  constructor(private db: Db) {}
+  readonly music: MusicRooms;
+
+  constructor(private db: Db) {
+    this.music = new MusicRooms(db, (msg) => this.broadcast(msg));
+  }
 
   // Connections
 
@@ -97,7 +103,10 @@ export class Hub {
     if (voice?.speaking) this.broadcast({ type: 'voice.state', voice: { ...voice, speaking: false } });
     this.voice.delete(userId);
     this.broadcastPresence(userId);
-    if (roomId) this.afterRoomChanged(roomId);
+    if (roomId) {
+      this.music.left(userId, roomId, !this.occupants(roomId).length);
+      this.afterRoomChanged(roomId);
+    }
   }
 
   /** Stop every timer, so a closing server exits at once. */
@@ -105,6 +114,7 @@ export class Hub {
     for (const t of this.offlineTimers.values()) clearTimeout(t);
     for (const k of this.knocks.values()) clearTimeout(k.timer);
     this.offlineTimers.clear();
+    this.music.close();
     this.knocks.clear();
   }
 
@@ -166,6 +176,26 @@ export class Hub {
         return this.setVoice(userId, { muted: !!msg.muted, deafened: !!msg.deafened });
       case 'voice.speaking':
         return this.setVoice(userId, { speaking: !!msg.speaking });
+      case 'time.sync':
+        return this.sendTo(ws, { type: 'time.sync', t0: msg.t0, server: Date.now() });
+      case 'music.add':
+      case 'music.playNow':
+      case 'music.jump':
+      case 'music.remove':
+      case 'music.move':
+      case 'music.clear':
+      case 'music.toggle':
+      case 'music.seek':
+      case 'music.next':
+      case 'music.prev':
+      case 'music.repeat':
+      case 'music.stream': {
+        const room = this.location.get(userId);
+        if (!room) return this.notice(userId, 'error', 'Walk into a room to play music.');
+        const problem = this.music.handle(userId, room, msg);
+        if (problem) this.notice(userId, 'error', problem);
+        return;
+      }
       case 'rtc.signal': {
         // Calls only happen between people in the same room; anything else is dropped.
         const room = this.location.get(userId);
@@ -253,7 +283,10 @@ export class Hub {
       if (k.fromUserId === userId) this.resolveKnock(k.id, 'cancelled');
     }
     this.broadcastPresence(userId);
-    if (from) this.afterRoomChanged(from);
+    if (from) {
+      this.music.left(userId, from, !this.occupants(from).length);
+      this.afterRoomChanged(from);
+    }
   }
 
   /** Shared rooms open up again once the last person leaves. */
@@ -286,12 +319,22 @@ export class Hub {
   }
 
   roomRemoved(roomId: string): void {
+    this.music.roomRemoved(roomId);
     for (const k of [...this.knocks.values()]) if (k.roomId === roomId) this.resolveKnock(k.id, 'cancelled');
     for (const id of this.occupants(roomId)) {
       this.location.set(id, null);
       this.broadcastPresence(id);
     }
     this.broadcast({ type: 'room.remove', roomId });
+  }
+
+  libraryChanged(track: Track): void {
+    this.broadcast({ type: 'library.upsert', track });
+  }
+
+  libraryRemoved(trackId: string): void {
+    this.music.trackRemoved(trackId);
+    this.broadcast({ type: 'library.remove', trackId });
   }
 
   floorChanged(floor: Floor): void {
@@ -313,6 +356,8 @@ export class Hub {
       rooms: this.db.listRooms(),
       presence: users.map((u) => this.presence(u.id)),
       voice: [...this.voice.values()],
+      library: this.db.listTracks(),
+      music: this.music.all(),
     };
   }
 

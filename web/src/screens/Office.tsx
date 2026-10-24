@@ -7,12 +7,25 @@ import { Avatar, statusLabel } from '../components/Avatar';
 import { FloorMap, KIND_ICON, KIND_LABEL } from '../components/FloorMap';
 import { Badge, Button, IconButton, Segmented } from '../components/ui';
 import { SpeakingAvatar, VoiceDock, VolumeControl } from '../components/Voice';
+import { MusicPanel } from '../components/Music';
+import { useMusic } from '../lib/music';
 
 export function Office() {
   const selectedRoomId = useStore((s) => s.selectedRoomId);
-  const selectRoom = useStore((s) => s.selectRoom);
+  const storeSelectRoom = useStore((s) => s.selectRoom);
   const send = useStore((s) => s.send);
+  const inRoom = useStore((s) => !!(s.meId && s.presence[s.meId]?.roomId));
+  const musicOpen = useMusic((s) => s.panelOpen) && inRoom;
   const [focus, setFocus] = useState<{ roomId: string; nonce: number } | null>(null);
+
+  // One side panel at a time: picking a room closes the music panel.
+  const selectRoom = (id: string | null) => {
+    if (id) useMusic.setState({ panelOpen: false });
+    storeSelectRoom(id);
+  };
+  useEffect(() => {
+    if (!inRoom) useMusic.setState({ panelOpen: false });
+  }, [inRoom]);
 
   const flyTo = (roomId: string) => {
     selectRoom(roomId);
@@ -23,7 +36,13 @@ export function Office() {
     <div className="office">
       <FloorMap mode="live" selectedId={selectedRoomId} onSelect={selectRoom} onActivate={(room) => send({ type: 'room.enter', roomId: room.id })} focus={focus} insetLeft={300} insetBottom={70} />
       <PeopleRail onFlyTo={flyTo} />
-      <AnimatePresence>{selectedRoomId && <RoomPanel key={selectedRoomId} roomId={selectedRoomId} onClose={() => selectRoom(null)} />}</AnimatePresence>
+      <AnimatePresence>
+        {musicOpen ? (
+          <MusicPanel key="music" onClose={() => useMusic.setState({ panelOpen: false })} />
+        ) : (
+          selectedRoomId && <RoomPanel key={selectedRoomId} roomId={selectedRoomId} onClose={() => selectRoom(null)} />
+        )}
+      </AnimatePresence>
       <OutgoingKnock />
       <VoiceDock />
     </div>

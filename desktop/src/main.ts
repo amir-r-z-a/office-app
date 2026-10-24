@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Menu, nativeImage, session, shell, Tray } from 'electron';
+import { app, BrowserWindow, desktopCapturer, ipcMain, Menu, nativeImage, session, shell, Tray } from 'electron';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -43,6 +43,18 @@ function start() {
   session.defaultSession.setPermissionRequestHandler((wc, permission, done) => {
     const fromServer = !!config.server && wc.getURL().startsWith(config.server);
     done(fromServer && ['media', 'notifications', 'display-capture', 'clipboard-sanitized-write'].includes(permission));
+  });
+
+  // "Share my audio": capture what the computer plays. Chromium needs a screen to go with
+  // system audio; the app drops the video at once and keeps only the sound.
+  session.defaultSession.setDisplayMediaRequestHandler(async (request, callback) => {
+    try {
+      const [screen] = await desktopCapturer.getSources({ types: ['screen'] });
+      if (!screen) return callback({});
+      callback(request.audioRequested ? { video: screen, audio: 'loopback' } : { video: screen });
+    } catch {
+      callback({});
+    }
   });
 
   win = new BrowserWindow({

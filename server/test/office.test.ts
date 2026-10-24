@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import WebSocket from 'ws';
@@ -26,7 +26,15 @@ async function start() {
     await built.app.close();
     rmSync(dataDir, { recursive: true, force: true });
   };
-  return { ...built, port, call, stop };
+  const upload = async (file: string, token: string) => {
+    const res = await fetch(base + '/api/music', {
+      method: 'POST',
+      headers: { 'content-type': 'audio/mpeg', 'x-filename': encodeURIComponent(file), authorization: `Bearer ${token}` },
+      body: readFileSync(new URL(`./fixtures/${file}`, import.meta.url)),
+    });
+    return { status: res.status, body: (await res.json()) as any };
+  };
+  return { ...built, port, base, call, upload, stop };
 }
 
 /** A socket that records every message and can wait for one matching a test. */
@@ -42,11 +50,11 @@ function connect(port: number, token: string) {
       w.resolve(msg);
     }
   });
-  const next = <T extends ServerMessage['type']>(type: T, match: (m: Extract<ServerMessage, { type: T }>) => boolean = () => true) =>
+  const next = <T extends ServerMessage['type']>(type: T, match: (m: Extract<ServerMessage, { type: T }>) => boolean = () => true, timeout = 2000) =>
     new Promise<Extract<ServerMessage, { type: T }>>((resolve, reject) => {
       const found = seen.find((m) => m.type === type && match(m as any));
       if (found) return resolve(found as any);
-      const timer = setTimeout(() => reject(new Error(`timed out waiting for ${type}`)), 2000);
+      const timer = setTimeout(() => reject(new Error(`timed out waiting for ${type}`)), timeout);
       waiters.push({ match: (m) => m.type === type && match(m as any), resolve: (m) => (clearTimeout(timer), resolve(m as any)) });
     });
   const send = (msg: object) => ws.send(JSON.stringify(msg));
@@ -166,6 +174,87 @@ test('call signals pass only between people in the same room', async () => {
 
     samWs.ws.close();
     bossWs.ws.close();
+  } finally {
+    await s.stop();
+  }
+});
+
+test('songs upload with their tags and art, and only the uploader or an admin can remove them', async () => {
+  const s = await start();
+  try {
+    const admin = (await s.call('POST', '/api/setup', { username: 'boss', displayName: 'Boss', password: 'secret', officeName: 'HQ', sampleLayout: false })).body.token;
+    await s.call('POST', '/api/users', { username: 'sam', displayName: 'Sam', password: 'pass1', role: 'member' }, admin);
+    await s.call('POST', '/api/users', { username: 'kim', displayName: 'Kim', password: 'pass1', role: 'member' }, admin);
+    const sam = (await s.call('POST', '/api/login', { username: 'sam', password: 'pass1' })).body.token;
+    const kim = (await s.call('POST', '/api/login', { username: 'kim', password: 'pass1' })).body.token;
+
+    const up = await s.upload('tone.mp3', sam);
+    assert.equal(up.status, 200);
+    assert.equal(up.body.title, 'Test Tone');
+    assert.equal(up.body.artist, 'Office Band');
+    assert.ok(Math.abs(up.body.duration - 3) < 0.3, `duration ${up.body.duration}`);
+    assert.ok(up.body.coverUrl);
+
+    // Players seek with range requests.
+    const ranged = await fetch(s.base + up.body.url, { headers: { range: 'bytes=0-99' } });
+    assert.equal(ranged.status, 206);
+    assert.equal((await ranged.arrayBuffer()).byteLength, 100);
+    assert.equal((await fetch(s.base + up.body.coverUrl)).status, 200);
+
+    const notAudio = await fetch(s.base + '/api/music', {
+      method: 'POST',
+      headers: { 'content-type': 'application/octet-stream', 'x-filename': 'notes.txt', authorization: `Bearer ${sam}` },
+      body: 'hello',
+    });
+    assert.equal(notAudio.status, 415);
+
+    assert.equal((await s.call('DELETE', `/api/music/${up.body.id}`, undefined, kim)).status, 403);
+    assert.equal((await s.call('DELETE', `/api/music/${up.body.id}`, undefined, admin)).status, 200);
+    assert.equal((await fetch(s.base + up.body.url)).status, 404);
+  } finally {
+    await s.stop();
+  }
+});
+
+test('a room plays its queue in step, moves on when a song ends, and pauses when everyone leaves', async () => {
+  const s = await start();
+  try {
+    const setup = (await s.call('POST', '/api/setup', { username: 'boss', displayName: 'Boss', password: 'secret', officeName: 'HQ', sampleLayout: false })).body;
+    const admin = setup.token;
+    const lounge = (await s.call('POST', '/api/rooms', { name: 'Lounge', kind: 'lounge', ownerId: null, hue: 'amber', lockMode: 'open', capacity: 10, x: 0, y: 0, w: 300, h: 300 }, admin)).body;
+    const track = (await s.upload('tone.mp3', admin)).body;
+
+    const ws = connect(s.port, admin);
+    await ws.opened;
+    await ws.next('snapshot');
+
+    // Music needs a room.
+    ws.send({ type: 'music.add', trackIds: [track.id] });
+    assert.match((await ws.next('notice')).message, /room/);
+
+    ws.send({ type: 'room.enter', roomId: lounge.id });
+    await ws.next('presence', (m) => m.presence.roomId === lounge.id);
+    ws.send({ type: 'music.add', trackIds: [track.id, track.id] });
+    const started = await ws.next('music.state', (m) => m.music.playing);
+    assert.equal(started.music.index, 0);
+    assert.equal(started.music.queue.length, 2);
+
+    // The clock check answers with server time.
+    const t0 = Date.now();
+    ws.send({ type: 'time.sync', t0 });
+    const sync = await ws.next('time.sync');
+    assert.equal(sync.t0, t0);
+    assert.ok(Math.abs(sync.server - Date.now()) < 1000);
+
+    // About three seconds later the first song ends and the second starts.
+    const second = await ws.next('music.state', (m) => m.music.index === 1, 6000);
+    assert.equal(second.music.playing, true);
+    assert.equal(second.music.position, 0);
+
+    ws.send({ type: 'room.leave' });
+    const paused = await ws.next('music.state', (m) => !m.music.playing && m.music.index === 1);
+    assert.ok(paused.music.position >= 0);
+    ws.ws.close();
   } finally {
     await s.stop();
   }
