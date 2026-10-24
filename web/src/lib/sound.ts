@@ -1,10 +1,21 @@
 // Small synthesized sounds, so the app needs no audio files and works offline.
 
 let ctx: AudioContext | null = null;
+let sinkId = '';
+
+/** Play app sounds on the speakers chosen in audio settings, where the browser allows it. */
+export function setSoundOutput(id: string) {
+  sinkId = id;
+  const c = ctx as (AudioContext & { setSinkId?: (id: string) => Promise<void> }) | null;
+  void c?.setSinkId?.(id).catch(() => undefined);
+}
 
 function audio(): AudioContext | null {
   try {
-    ctx ??= new AudioContext();
+    if (!ctx) {
+      ctx = new AudioContext();
+      if (sinkId) setSoundOutput(sinkId);
+    }
     if (ctx.state === 'suspended') void ctx.resume();
     return ctx;
   } catch {
@@ -58,4 +69,20 @@ export function playDecline() {
   const t = ac.currentTime + 0.01;
   tone(ac, 392, t, 0.3, 0.08);
   tone(ac, 311, t + 0.14, 0.4, 0.08);
+}
+
+/** A soft falling note: someone left your room. */
+export function playLeave() {
+  const ac = audio();
+  if (!ac) return;
+  const t = ac.currentTime + 0.01;
+  tone(ac, 660, t, 0.18, 0.05);
+  tone(ac, 494, t + 0.09, 0.3, 0.05);
+}
+
+/** A short click when the mic goes on or off: higher for on, lower for off. */
+export function playMuteToggle(muted: boolean) {
+  const ac = audio();
+  if (!ac) return;
+  tone(ac, muted ? 420 : 760, ac.currentTime + 0.005, 0.12, 0.06);
 }

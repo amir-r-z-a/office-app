@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { Camera, Check, ChevronDown, LogOut, Server, Map, Monitor, Moon, Settings2, Shield, Sun, Trash2, UserRound } from 'lucide-react';
+import { AudioLines, Camera, Check, ChevronDown, LogOut, Server, Map, Monitor, Moon, Settings2, Shield, Sun, Trash2, UserRound } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { HUES, STATUSES, type Hue, type Status } from '@office/shared';
 import { api } from '../lib/api';
@@ -9,6 +9,8 @@ import { useTheme, type ThemePref } from '../lib/theme';
 import { Avatar, StatusDot, statusLabel } from '../components/Avatar';
 import { Button, Field, Modal, Popover, Segmented } from '../components/ui';
 import { Office, DoorbellStack } from './Office';
+import { AudioSettings } from '../components/Voice';
+import { useVoice } from '../lib/voice';
 import { Admin } from './Admin';
 
 export function Shell() {
@@ -35,6 +37,7 @@ export function Shell() {
       </main>
       <DoorbellStack />
       <ProfileModal />
+      <AudioSettings />
     </div>
   );
 }
@@ -207,6 +210,9 @@ function MeMenu() {
         <div className="me-popover__actions">
           <button className="menu-item" onClick={() => (setOpen(false), setProfileOpen(true))}>
             <Settings2 size={16} /> Edit profile
+          </button>
+          <button className="menu-item" onClick={() => (setOpen(false), useVoice.setState({ settingsOpen: true }))}>
+            <AudioLines size={16} /> Audio settings
           </button>
           {desktop && (
             <button className="menu-item" onClick={() => (setOpen(false), desktop?.changeServer())}>

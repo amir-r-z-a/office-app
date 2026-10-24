@@ -1,8 +1,8 @@
 import { create } from 'zustand';
-import type { ClientMessage, Floor, Knock, Presence, Room, ServerMessage, User } from '@office/shared';
+import type { ClientMessage, Floor, Knock, Presence, Room, RtcSignal, ServerMessage, User, VoiceState } from '@office/shared';
 import { api, ApiError, getToken, setToken } from './api';
 import { desktop } from './desktop';
-import { playDecline, playDoorbell, playPop } from './sound';
+import { playDecline, playDoorbell, playLeave, playPop } from './sound';
 
 export type Phase = 'loading' | 'unreachable' | 'setup' | 'login' | 'ready';
 export type View = 'office' | 'admin';
@@ -24,6 +24,7 @@ interface State {
   users: Record<string, User>;
   rooms: Record<string, Room>;
   presence: Record<string, Presence>;
+  voice: Record<string, VoiceState>;
   incoming: Knock[];
   outgoing: Knock | null;
   toasts: Toast[];
@@ -50,6 +51,12 @@ let retry = 0;
 let retryTimer: number | undefined;
 let pingTimer: number | undefined;
 let wanted = false;
+let rtcHandler: ((from: string, signal: RtcSignal) => void) | null = null;
+
+/** The voice engine takes call signals from here; set once at startup. */
+export function onRtcSignal(handler: (from: string, signal: RtcSignal) => void) {
+  rtcHandler = handler;
+}
 
 export const useStore = create<State>((set, get) => ({
   phase: 'loading',
@@ -60,6 +67,7 @@ export const useStore = create<State>((set, get) => ({
   users: {},
   rooms: {},
   presence: {},
+  voice: {},
   incoming: [],
   outgoing: null,
   toasts: [],
@@ -97,7 +105,7 @@ export const useStore = create<State>((set, get) => ({
     setToken(null);
     socket?.close();
     socket = null;
-    set({ phase: 'login', meId: null, users: {}, rooms: {}, presence: {}, incoming: [], outgoing: null, view: 'office', selectedRoomId: null });
+    set({ phase: 'login', meId: null, users: {}, rooms: {}, presence: {}, voice: {}, incoming: [], outgoing: null, view: 'office', selectedRoomId: null });
   },
 
   send: (msg) => {
@@ -164,6 +172,7 @@ function handle(msg: ServerMessage) {
         users: Object.fromEntries(snapshot.users.map((u) => [u.id, u])),
         rooms: Object.fromEntries(snapshot.rooms.map((r) => [r.id, r])),
         presence: Object.fromEntries(snapshot.presence.map((p) => [p.userId, p])),
+        voice: Object.fromEntries(snapshot.voice.map((v) => [v.userId, v])),
         incoming: [],
         outgoing: null,
       });
@@ -191,9 +200,16 @@ function handle(msg: ServerMessage) {
       if (msg.presence.userId !== s.meId && myRoom && msg.presence.roomId === myRoom && before?.roomId !== myRoom) {
         playPop();
         s.toast({ tone: 'info', title: `${name(msg.presence.userId)} came in`, userId: msg.presence.userId });
+      } else if (msg.presence.userId !== s.meId && myRoom && before?.roomId === myRoom && msg.presence.roomId !== myRoom) {
+        playLeave();
       }
       return;
     }
+    case 'voice.state':
+      return set({ voice: { ...s.voice, [msg.voice.userId]: msg.voice } });
+    case 'rtc.signal':
+      rtcHandler?.(msg.from, msg.signal);
+      return;
     case 'knock.incoming':
       if (!s.incoming.some((k) => k.id === msg.knock.id)) {
         set({ incoming: [...s.incoming, msg.knock] });

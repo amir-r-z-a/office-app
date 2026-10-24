@@ -6,6 +6,7 @@ import { occupantsOf, useMe, useStore } from '../lib/store';
 import { Avatar, statusLabel } from '../components/Avatar';
 import { FloorMap, KIND_ICON, KIND_LABEL } from '../components/FloorMap';
 import { Badge, Button, IconButton, Segmented } from '../components/ui';
+import { SpeakingAvatar, VoiceDock, VolumeControl } from '../components/Voice';
 
 export function Office() {
   const selectedRoomId = useStore((s) => s.selectedRoomId);
@@ -20,10 +21,11 @@ export function Office() {
 
   return (
     <div className="office">
-      <FloorMap mode="live" selectedId={selectedRoomId} onSelect={selectRoom} onActivate={(room) => send({ type: 'room.enter', roomId: room.id })} focus={focus} insetLeft={300} />
+      <FloorMap mode="live" selectedId={selectedRoomId} onSelect={selectRoom} onActivate={(room) => send({ type: 'room.enter', roomId: room.id })} focus={focus} insetLeft={300} insetBottom={70} />
       <PeopleRail onFlyTo={flyTo} />
       <AnimatePresence>{selectedRoomId && <RoomPanel key={selectedRoomId} roomId={selectedRoomId} onClose={() => selectRoom(null)} />}</AnimatePresence>
       <OutgoingKnock />
+      <VoiceDock />
     </div>
   );
 }
@@ -241,11 +243,12 @@ function RoomPanel({ roomId, onClose }: { roomId: string; onClose: () => void })
                   if (!u) return null;
                   return (
                     <motion.li key={id} layout initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }}>
-                      <Avatar user={u} size={32} showStatus />
-                      <span>
+                      <SpeakingAvatar userId={id} size={34} />
+                      <span className="occupants__text">
                         <strong>{id === me.id ? 'You' : u.displayName}</strong>
                         <small>{id === room.ownerId ? 'Owner' : u.title || statusLabel(u.status)}</small>
                       </span>
+                      {here && id !== me.id && <VolumeControl userId={id} />}
                     </motion.li>
                   );
                 })}

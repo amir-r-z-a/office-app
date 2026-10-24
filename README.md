@@ -2,18 +2,24 @@
 
 A virtual office for your team's local network. Everyone has a room on an interactive floor plan, so you can see who's around, ring a coworker's doorbell, and walk in to talk. It runs entirely on your office Wi-Fi: one computer is the server, and everyone else uses the desktop app.
 
-> **Status: Phase 1 of 6.** Done so far: the office map, presence, statuses, doorbells, room locks, profiles and the admin area. Coming next: voice, music, messaging, meeting rooms with screen sharing, and installers. See the [roadmap](#roadmap).
+> **Status: Phase 2 of 6.** Done so far: the office map, presence, statuses, doorbells, room locks, profiles, the admin area, and voice. Coming next: music, messaging, meeting rooms with screen sharing, and installers. See the [roadmap](#roadmap).
 
 | Light | Dark |
 | --- | --- |
 | ![The office map in the light theme](docs/screenshots/office-light.png) | ![The office map in the dark theme](docs/screenshots/office-dark.png) |
 | ![A room's side panel](docs/screenshots/panel-light.png) | ![A doorbell ringing](docs/screenshots/doorbell-dark.png) |
 | ![Managing people](docs/screenshots/people-light.png) | ![The floor plan editor](docs/screenshots/editor-dark.png) |
+| ![In a call, with the voice dock](docs/screenshots/voice-light.png) | ![Per-person volume in a call](docs/screenshots/voice-dark.png) |
 
 ## What it does today
 
 - **Live office map.** A floor plan with personal rooms, meeting rooms and lounges. Avatars walk between rooms in real time, and people outside any room stand in the hallway.
 - **Doors and doorbells.** Each room is *Open* (walk in), *Knock* (ring the bell, someone inside lets you in) or *Locked*. A doorbell plays a chime and shows a 30-second card with **Let them in** / **Not now**.
+- **Voice.** Walk into a room and you're talking with everyone there. A dock at the bottom shows who's in the call, with mute, sound off and leave buttons. Speaking avatars glow on the map, and muted people show a crossed-out mic.
+  - Each person in your room has a volume slider. Volumes are remembered on your computer.
+  - Audio settings let you pick the microphone and speakers, check your level on a live meter, and switch noise suppression and echo cancellation.
+  - Shortcuts: **Ctrl+Shift+M** mutes, **Ctrl+Shift+D** turns sound off (Cmd on a Mac). If you talk while muted, the app reminds you.
+  - Your mic only switches on while someone else is in your room, so the system's "mic in use" light goes off when you're alone.
 - **Statuses.** Available, Busy, Away or Do not disturb, plus a custom status line. Do not disturb locks your door and silences your doorbell.
 - **Profiles.** Name, title, color, emoji or uploaded photo, and password.
 - **Admin area.** Add and remove people (with generated passwords and an automatic personal room), and edit the floor plan by dragging, resizing, recoloring and assigning rooms.
@@ -77,13 +83,15 @@ desktop/  Electron shell that loads the UI from the office server
 
 - The server keeps users, rooms and the floor in SQLite, and keeps live state in memory: who's online, where everyone is, and doorbells in flight. Every change is pushed to every app over one WebSocket.
 - The desktop app loads the UI from the server, so updating the server updates everyone.
+- Voice is peer to peer over WebRTC. Everyone in a room has a direct audio link to each other person there, negotiated through the server, which only relays between people in the same room. On a LAN no STUN or TURN server is needed, and audio never passes through the server.
+- Browsers only allow the microphone on secure pages. The desktop app allows it for your office server. In a plain browser, voice works at `http://localhost` (on the server computer itself) or behind HTTPS.
 - Passwords are hashed with scrypt, and sessions are signed tokens.
 - No internet access is needed at runtime. Fonts and sounds are bundled or synthesized.
 
 ## Roadmap
 
 1. ✅ **Core:** sign-in, admin, floor plan editor, live map, presence, statuses, doorbells, locks
-2. **Voice:** talk with everyone in your room (a self-hosted LiveKit server), mute and per-person volume
+2. ✅ **Voice:** talk with everyone in your room, mute, sound off, per-person volume, device settings
 3. **Music:** a shared library with uploads and a synced queue per room, plus streaming your computer's own audio
 4. **Messaging:** direct messages, room chat, an office channel, unread badges and notifications
 5. **Meeting rooms and screen sharing**

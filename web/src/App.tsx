@@ -5,11 +5,13 @@ import { Login, Setup, Unreachable } from './screens/Auth';
 import { Shell } from './screens/Shell';
 import { Toasts } from './components/Toasts';
 import './lib/theme';
+import { voice } from './lib/voice';
 
 export function App() {
   const phase = useStore((s) => s.phase);
   const boot = useStore((s) => s.boot);
   useEffect(() => void boot(), [boot]);
+  useEffect(() => voice.start(), []);
 
   return (
     <MotionConfig reducedMotion="user">

@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { Armchair, Bell, Lock, Maximize, Minus, Plus, Presentation, Sofa, DoorOpen } from 'lucide-react';
+import { Armchair, Bell, DoorOpen, HeadphoneOff, Lock, Maximize, MicOff, Minus, Plus, Presentation, Sofa } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import type { Floor, Room, RoomKind, User } from '@office/shared';
 import { useStore } from '../lib/store';
@@ -43,9 +43,11 @@ export interface FloorMapProps {
   focus?: { roomId: string; nonce: number } | null;
   /** Width covered by an overlay on the left, kept clear when fitting. */
   insetLeft?: number;
+  /** Height covered by an overlay at the bottom (the voice dock), kept clear when fitting. */
+  insetBottom?: number;
 }
 
-export function FloorMap({ mode, selectedId, onSelect, onActivate, onChangeRoom, focus, insetLeft = 0 }: FloorMapProps) {
+export function FloorMap({ mode, selectedId, onSelect, onActivate, onChangeRoom, focus, insetLeft = 0, insetBottom = 0 }: FloorMapProps) {
   const floor = useStore((s) => s.floor);
   const rooms = useStore((s) => s.rooms);
   const users = useStore((s) => s.users);
@@ -53,6 +55,7 @@ export function FloorMap({ mode, selectedId, onSelect, onActivate, onChangeRoom,
   const meId = useStore((s) => s.meId);
   const incoming = useStore((s) => s.incoming);
   const outgoing = useStore((s) => s.outgoing);
+  const voiceStates = useStore((s) => s.voice);
 
   const viewport = useRef<HTMLDivElement>(null);
   const [camera, setCamera] = useState<Camera>({ x: 0, y: 0, scale: 0.6 });
@@ -80,11 +83,12 @@ export function FloorMap({ mode, selectedId, onSelect, onActivate, onChangeRoom,
       // Narrow windows ignore the overlay rather than shrink the floor to nothing.
       const left = width - insetLeft > 700 ? insetLeft : 0;
       const usable = width - left;
-      const scale = clamp(Math.min((usable - pad * 2) / floor.width, (height - pad * 2) / floor.height), MIN_SCALE, 1.2);
+      const usableH = height - insetBottom;
+      const scale = clamp(Math.min((usable - pad * 2) / floor.width, (usableH - pad * 2) / floor.height), MIN_SCALE, 1.2);
       setSmooth(animate);
-      setCamera({ scale, x: left + (usable - floor.width * scale) / 2, y: (height - floor.height * scale) / 2 });
+      setCamera({ scale, x: left + (usable - floor.width * scale) / 2, y: (usableH - floor.height * scale) / 2 });
     },
-    [floor.width, floor.height, insetLeft],
+    [floor.width, floor.height, insetLeft, insetBottom],
   );
 
   useLayoutEffect(() => {
@@ -273,16 +277,23 @@ export function FloorMap({ mode, selectedId, onSelect, onActivate, onChangeRoom,
           {slots.slots.map((slot) => {
             const user = users[slot.userId];
             if (!user) return null;
+            const v = voiceStates[slot.userId];
             return (
               <motion.div
                 key={slot.userId}
-                className={`map-person ${slot.userId === meId ? 'is-me' : ''}`}
+                className={`map-person ${slot.userId === meId ? 'is-me' : ''} ${v?.speaking ? 'is-speaking' : ''}`}
+                data-hue={user.hue}
                 initial={{ x: slot.x, y: slot.y, scale: 0, opacity: 0 }}
                 animate={{ x: slot.x, y: slot.y, scale: 1, opacity: 1 }}
                 exit={{ scale: 0, opacity: 0, transition: { duration: 0.25 } }}
                 transition={{ type: 'spring', stiffness: 170, damping: 22, mass: 0.9 }}
               >
                 <Avatar user={user} size={AVATAR} showStatus ring={slot.userId === meId} />
+                {(v?.muted || v?.deafened) && (
+                  <span className="map-person__muted" title={v.deafened ? 'Sound off' : 'Muted'}>
+                    {v.deafened ? <HeadphoneOff size={11} strokeWidth={2.6} /> : <MicOff size={11} strokeWidth={2.6} />}
+                  </span>
+                )}
                 <span className="map-person__name">{slot.userId === meId ? 'You' : user.displayName.split(' ')[0]}</span>
               </motion.div>
             );

@@ -11,6 +11,7 @@ import {
   type Room,
   type ServerMessage,
   type User,
+  type VoiceState,
 } from '@office/shared';
 import type { Db } from './db.js';
 
@@ -27,6 +28,7 @@ export class Hub {
   private location = new Map<string, string | null>();
   private offlineTimers = new Map<string, NodeJS.Timeout>();
   private knocks = new Map<string, PendingKnock>();
+  private voice = new Map<string, VoiceState>();
 
   constructor(private db: Db) {}
 
@@ -91,6 +93,9 @@ export class Hub {
     for (const knock of [...this.knocks.values()]) {
       if (knock.fromUserId === userId) this.resolveKnock(knock.id, 'cancelled');
     }
+    const voice = this.voice.get(userId);
+    if (voice?.speaking) this.broadcast({ type: 'voice.state', voice: { ...voice, speaking: false } });
+    this.voice.delete(userId);
     this.broadcastPresence(userId);
     if (roomId) this.afterRoomChanged(roomId);
   }
@@ -157,6 +162,28 @@ export class Hub {
         if (knock?.fromUserId === userId) this.resolveKnock(knock.id, 'cancelled');
         return;
       }
+      case 'voice.set':
+        return this.setVoice(userId, { muted: !!msg.muted, deafened: !!msg.deafened });
+      case 'voice.speaking':
+        return this.setVoice(userId, { speaking: !!msg.speaking });
+      case 'rtc.signal': {
+        // Calls only happen between people in the same room; anything else is dropped.
+        const room = this.location.get(userId);
+        if (!room || msg.to === userId || this.location.get(msg.to) !== room) return;
+        this.send(msg.to, { type: 'rtc.signal', from: userId, signal: msg.signal });
+        return;
+      }
+    }
+  }
+
+  private setVoice(userId: string, patch: Partial<Omit<VoiceState, 'userId'>>): void {
+    const before = this.voice.get(userId) ?? { userId, muted: false, deafened: false, speaking: false };
+    const next = { ...before, ...patch };
+    // Nobody hears a muted person, so they never show as speaking.
+    if (next.muted) next.speaking = false;
+    this.voice.set(userId, next);
+    if (next.muted !== before.muted || next.deafened !== before.deafened || next.speaking !== before.speaking) {
+      this.broadcast({ type: 'voice.state', voice: next });
     }
   }
 
@@ -285,6 +312,7 @@ export class Hub {
       users,
       rooms: this.db.listRooms(),
       presence: users.map((u) => this.presence(u.id)),
+      voice: [...this.voice.values()],
     };
   }
 

@@ -62,6 +62,22 @@ export interface Knock {
   expiresAt: number;
 }
 
+/** What everyone can see about a person's voice: shown on the map and in room lists. */
+export interface VoiceState {
+  userId: string;
+  muted: boolean;
+  deafened: boolean;
+  speaking: boolean;
+}
+
+/** WebRTC negotiation, relayed by the server between two people in the same room. */
+export type RtcSignal = { session: string } & (
+  | { description: { type: 'offer' | 'answer' | 'pranswer' | 'rollback'; sdp?: string } }
+  | { candidate: { candidate: string; sdpMid?: string | null; sdpMLineIndex?: number | null; usernameFragment?: string | null } | null }
+  /** "I'm here": sent by the answering side when it opens a call. */
+  | { hello: true }
+);
+
 export type KnockOutcome = 'accepted' | 'declined' | 'expired' | 'cancelled' | 'nobody';
 
 export interface Snapshot {
@@ -70,6 +86,7 @@ export interface Snapshot {
   users: User[];
   rooms: Room[];
   presence: Presence[];
+  voice: VoiceState[];
 }
 
 /** Messages the app sends over the socket. */
@@ -81,6 +98,9 @@ export type ClientMessage =
   | { type: 'room.setLock'; roomId: string; lockMode: LockMode }
   | { type: 'knock.respond'; knockId: string; accept: boolean }
   | { type: 'knock.cancel'; knockId: string }
+  | { type: 'voice.set'; muted: boolean; deafened: boolean }
+  | { type: 'voice.speaking'; speaking: boolean }
+  | { type: 'rtc.signal'; to: string; signal: RtcSignal }
   | { type: 'ping' };
 
 /** Messages the server sends over the socket. */
@@ -97,6 +117,8 @@ export type ServerMessage =
   /** Sent to the knocker while they wait. */
   | { type: 'knock.pending'; knock: Knock }
   | { type: 'knock.resolved'; knockId: string; roomId: string; fromUserId: string; outcome: KnockOutcome; byUserId?: string }
+  | { type: 'voice.state'; voice: VoiceState }
+  | { type: 'rtc.signal'; from: string; signal: RtcSignal }
   | { type: 'notice'; level: 'info' | 'error'; message: string }
   | { type: 'pong' };
 

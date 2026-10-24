@@ -129,3 +129,44 @@ test('ringing the bell: the owner accepts and the guest walks in', async () => {
     await s.stop();
   }
 });
+
+test('call signals pass only between people in the same room', async () => {
+  const s = await start();
+  try {
+    const setup = (await s.call('POST', '/api/setup', { username: 'boss', displayName: 'Boss', password: 'secret', officeName: 'HQ', sampleLayout: false })).body;
+    const admin = setup.token;
+    const lounge = (await s.call('POST', '/api/rooms', { name: 'Lounge', kind: 'lounge', ownerId: null, hue: 'amber', lockMode: 'open', capacity: 10, x: 0, y: 0, w: 300, h: 300 }, admin)).body;
+    const sam = (await s.call('POST', '/api/users', { username: 'sam', displayName: 'Sam', password: 'pass1', role: 'member' }, admin)).body;
+    const samToken = (await s.call('POST', '/api/login', { username: 'sam', password: 'pass1' })).body.token;
+
+    const bossWs = connect(s.port, admin);
+    const samWs = connect(s.port, samToken);
+    await Promise.all([bossWs.opened, samWs.opened, bossWs.next('snapshot'), samWs.next('snapshot')]);
+
+    // Both in the hallway: the signal is dropped.
+    const signal = { description: { type: 'offer', sdp: 'v=0' } };
+    bossWs.send({ type: 'rtc.signal', to: sam.id, signal });
+    await assert.rejects(samWs.next('rtc.signal'));
+
+    bossWs.send({ type: 'room.enter', roomId: lounge.id });
+    samWs.send({ type: 'room.enter', roomId: lounge.id });
+    await bossWs.next('presence', (m) => m.presence.userId === sam.id && m.presence.roomId === lounge.id);
+    await samWs.next('presence', (m) => m.presence.userId === setup.user.id && m.presence.roomId === lounge.id);
+    bossWs.send({ type: 'rtc.signal', to: sam.id, signal });
+    const got = await samWs.next('rtc.signal');
+    assert.equal(got.from, setup.user.id);
+    assert.deepEqual(got.signal, signal);
+
+    // Voice state reaches everyone, and a muted person never shows as speaking.
+    samWs.send({ type: 'voice.set', muted: true, deafened: false });
+    samWs.send({ type: 'voice.speaking', speaking: true });
+    const state = await bossWs.next('voice.state', (m) => m.voice.userId === sam.id);
+    assert.equal(state.voice.muted, true);
+    assert.equal(state.voice.speaking, false);
+
+    samWs.ws.close();
+    bossWs.ws.close();
+  } finally {
+    await s.stop();
+  }
+});

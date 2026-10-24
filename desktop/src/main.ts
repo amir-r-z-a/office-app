@@ -56,7 +56,7 @@ function start() {
     icon: join(staticDir, 'icon.png'),
     autoHideMenuBar: true,
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
-    webPreferences: { preload: join(__dirname, 'preload.js'), contextIsolation: true, sandbox: true },
+    webPreferences: { preload: join(__dirname, 'preload.js'), contextIsolation: true, sandbox: true, autoplayPolicy: 'no-user-gesture-required', backgroundThrottling: false },
   });
   win.once('ready-to-show', () => win?.show());
 
