@@ -1,6 +1,7 @@
 # Installers for Windows (.exe) and macOS (.dmg), built by .github/workflows/release.yml.
 appId: app.office.desktop
 productName: Office
+electronVersion: 45.0.0
 copyright: Copyright © Office
 directories:
   output: out
