@@ -651,11 +651,75 @@ class VoiceEngine {
     track.addEventListener('ended', () => this.stopShare());
     for (const peer of this.peers.values()) await this.sendShare(peer);
     useStore.getState().send({ type: 'music.stream', on: true });
+    this.watchShare(track);
     return null;
+  }
+
+  private shareMeter: { timer: number; clone: MediaStreamTrack } | null = null;
+  private shareListeners = new Set<(level: number) => void>();
+
+  /** Follow how loud the shared audio is, 0 to 1, so the sharer can see it's working. */
+  onShareLevel(fn: (level: number) => void): () => void {
+    this.shareListeners.add(fn);
+    return () => this.shareListeners.delete(fn);
+  }
+
+  /**
+   * Measure the shared audio. Some systems hand over a track that is pure silence (a missing
+   * permission on macOS, for one), so if nothing at all arrives for a while, say so.
+   */
+  private watchShare(track: MediaStreamTrack) {
+    this.stopShareMeter();
+    let analyser: AnalyserNode;
+    const clone = track.clone();
+    try {
+      this.audioCtx ??= new AudioContext();
+      void this.audioCtx.resume();
+      analyser = this.audioCtx.createAnalyser();
+      analyser.fftSize = 1024;
+      this.audioCtx.createMediaStreamSource(new MediaStream([clone])).connect(analyser);
+    } catch {
+      clone.stop();
+      return;
+    }
+    const buf = new Float32Array(analyser.fftSize);
+    const started = Date.now();
+    let heard = false;
+    let warned = false;
+    let level = 0;
+    const timer = window.setInterval(() => {
+      analyser.getFloatTimeDomainData(buf);
+      let sum = 0;
+      for (const v of buf) sum += v * v;
+      const rms = Math.sqrt(sum / buf.length);
+      if (rms > 0.0005) heard = true;
+      level = rms > level ? rms : level * 0.85 + rms * 0.15;
+      for (const fn of this.shareListeners) fn(Math.min(1, level * 5));
+      if (!heard && !warned && Date.now() - started > 8000) {
+        warned = true;
+        useStore.getState().toast({
+          tone: 'error',
+          title: 'No sound is coming through',
+          body: navigator.userAgent.includes('Mac')
+            ? 'Play something. If the meter stays flat, allow Office (or Electron) under System Settings → Privacy & Security → Screen & System Audio Recording, then reopen the app.'
+            : 'Play something on your computer. If the meter stays flat, stop and share again, and make sure audio is included.',
+        });
+      }
+    }, 80);
+    this.shareMeter = { timer, clone };
+  }
+
+  private stopShareMeter() {
+    if (!this.shareMeter) return;
+    window.clearInterval(this.shareMeter.timer);
+    this.shareMeter.clone.stop();
+    this.shareMeter = null;
+    for (const fn of this.shareListeners) fn(0);
   }
 
   stopShare(tellServer = true) {
     if (!this.shareTrack) return;
+    this.stopShareMeter();
     this.shareTrack.stop();
     this.shareTrack = null;
     for (const peer of this.peers.values()) void peer.streamTransceiver?.sender.replaceTrack(null);

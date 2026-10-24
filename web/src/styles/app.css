@@ -3687,3 +3687,6 @@ kbd {
     display: none;
   }
 }
+.share__meter {
+  margin: 0;
+}

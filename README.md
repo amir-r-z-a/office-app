@@ -69,6 +69,8 @@ npm install        # downloads Electron
 npm start
 ```
 
+On a Mac, `npm start` opens Electron as its own app, not as part of your terminal. That way macOS asks permission for Electron, which system-audio sharing needs. The first time you share audio, allow **Screen & System Audio Recording**, then quit (tray icon → Quit) and reopen.
+
 On first launch it asks for the server address (for example `192.168.1.20:4000`) and remembers it. Closing the window keeps the app in the system tray, so doorbells still ring. The tray menu can start it when you sign in to your computer. Windows and macOS installers come in Phase 6.
 
 ### Developing

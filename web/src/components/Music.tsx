@@ -169,7 +169,7 @@ function NowPlaying({ music, onClose }: { music?: RoomMusic; onClose: () => void
             </span>
           </div>
           <strong>{streamer.id === meId ? 'You’re sharing your audio' : `${streamer.displayName.split(' ')[0]} is sharing their audio`}</strong>
-          <span>Whatever plays on their computer, everyone here hears.</span>
+          <span>{streamer.id === meId ? 'Everyone in this room hears whatever plays on your computer.' : 'Whatever plays on their computer, everyone here hears.'}</span>
           {streamer.id === meId && (
             <Button variant="danger" size="sm" icon={<X size={14} />} onClick={() => voice.stopShare()}>
               Stop sharing
@@ -592,6 +592,7 @@ function SharePane({ music }: { music?: RoomMusic }) {
           </span>
         </div>
       ) : null}
+      {mine && <ShareMeter />}
       {mine ? (
         <Button variant="danger" size="lg" block icon={<X size={18} />} onClick={() => voice.stopShare()}>
           Stop sharing
@@ -604,8 +605,35 @@ function SharePane({ music }: { music?: RoomMusic }) {
       <ul className="share__tips">
         <li>Sound comes from your whole computer, so mute notifications while you share.</li>
         <li>Others control how loud it is with their music volume, and it fades down while people talk.</li>
-        {isMac && <li>On a Mac this needs macOS 13 or newer. macOS asks for Screen Recording permission the first time.</li>}
+        {isMac && (
+          <li>
+            On a Mac, the first share asks to allow screen and system audio recording. Allow it, then quit and reopen the app. If nothing comes
+            through, check System Settings → Privacy &amp; Security → Screen &amp; System Audio Recording.
+          </li>
+        )}
       </ul>
+    </div>
+  );
+}
+
+/** A live meter of what you're sharing, so you can tell sound is getting out. */
+function ShareMeter() {
+  const fill = useRef<HTMLSpanElement>(null);
+  const [silent, setSilent] = useState(true);
+  useEffect(
+    () =>
+      voice.onShareLevel((level) => {
+        fill.current?.style.setProperty('--level', String(level));
+        if (level > 0.02) setSilent(false);
+      }),
+    [],
+  );
+  return (
+    <div className="meter share__meter">
+      <span className="meter__label">{silent ? 'Waiting for sound from your computer…' : 'Sound is going out to the room'}</span>
+      <span className="meter__track">
+        <span className="meter__fill" ref={fill} />
+      </span>
     </div>
   );
 }
