@@ -5,6 +5,7 @@ import type { Floor, Room, RoomKind, User } from '@office/shared';
 import { useStore } from '../lib/store';
 import { Avatar } from './Avatar';
 import { RoomNowPlaying } from './Music';
+import { RoomScreenChip } from './Share';
 
 export const KIND_ICON: Record<RoomKind, typeof Sofa> = { personal: Armchair, meeting: Presentation, lounge: Sofa };
 export const KIND_LABEL: Record<RoomKind, string> = { personal: 'Personal room', meeting: 'Meeting room', lounge: 'Lounge' };
@@ -392,7 +393,12 @@ function RoomTile(p: RoomTileProps) {
         </div>
       )}
       {p.overflow > 0 && <span className="room__overflow">+{p.overflow}</span>}
-      {p.mode === 'live' && <RoomNowPlaying roomId={room.id} />}
+      {p.mode === 'live' && (
+        <div className="room__chips">
+          <RoomScreenChip roomId={room.id} />
+          <RoomNowPlaying roomId={room.id} />
+        </div>
+      )}
       <span className="room__doorway" />
 
       {p.knocking && (

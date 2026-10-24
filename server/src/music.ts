@@ -24,7 +24,7 @@ export class MusicRooms {
   private get(roomId: string): RoomMusic {
     let m = this.rooms.get(roomId);
     if (!m) {
-      m = { roomId, queue: [], index: -1, playing: false, position: 0, anchorAt: Date.now(), repeat: 'off', streamerId: null };
+      m = { roomId, queue: [], index: -1, playing: false, position: 0, anchorAt: Date.now(), repeat: 'off', streamerId: null, streamSource: null };
       this.rooms.set(roomId, m);
     }
     return m;
@@ -47,6 +47,7 @@ export class MusicRooms {
         const at = m.index >= 0 ? m.index + 1 : m.queue.length;
         m.queue.splice(at, 0, { id: randomUUID(), trackId: msg.trackId, addedBy: userId });
         m.streamerId = null;
+        m.streamSource = null;
         this.startAt(m, at);
         break;
       }
@@ -54,6 +55,7 @@ export class MusicRooms {
         const i = m.queue.findIndex((q) => q.id === msg.itemId);
         if (i < 0) return;
         m.streamerId = null;
+        m.streamSource = null;
         this.startAt(m, i);
         break;
       }
@@ -117,8 +119,10 @@ export class MusicRooms {
           this.anchor(m, this.position(m));
           m.playing = false;
           m.streamerId = userId;
+          m.streamSource = msg.source ?? 'system';
         } else if (m.streamerId === userId) {
           m.streamerId = null;
+          m.streamSource = null;
         } else return;
         break;
     }
@@ -132,6 +136,7 @@ export class MusicRooms {
     let changed = false;
     if (m.streamerId === userId) {
       m.streamerId = null;
+      m.streamSource = null;
       changed = true;
     }
     if (roomIsEmpty && m.playing) {

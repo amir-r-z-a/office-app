@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import type { RtcSignal } from '@office/shared';
+import type { RtcSignal, StreamSource } from '@office/shared';
+import { desktop } from './desktop';
 import { onRtcSignal, useStore } from './store';
 import { playMuteToggle, setSoundOutput } from './sound';
 
@@ -33,6 +34,10 @@ function loadPrefs(): Prefs {
 interface VoiceStore extends Prefs {
   mic: MicState;
   peers: Record<string, PeerState>;
+  /** Video arriving from each person in the room; it shows frames only while they share. */
+  screens: Record<string, MediaStream>;
+  /** What I'm sharing, for my own preview. */
+  myScreen: MediaStream | null;
   inputs: MediaDeviceInfo[];
   outputs: MediaDeviceInfo[];
   settingsOpen: boolean;
@@ -42,6 +47,8 @@ export const useVoice = create<VoiceStore>(() => ({
   ...loadPrefs(),
   mic: 'off',
   peers: {},
+  screens: {},
+  myScreen: null,
   inputs: [],
   outputs: [],
   settingsOpen: false,
@@ -69,6 +76,8 @@ interface Peer {
   transceiver: RTCRtpTransceiver | null;
   /** A second channel for someone sharing their computer's audio; silent until they do. */
   streamTransceiver: RTCRtpTransceiver | null;
+  /** A third channel for screen sharing; silent until someone shares. */
+  videoTransceiver: RTCRtpTransceiver | null;
   audio: HTMLAudioElement;
   streamAudio: HTMLAudioElement;
   /** The other side's app session; a new one means they reloaded and the call starts over. */
@@ -123,6 +132,10 @@ class VoiceEngine {
         const music = room ? s.music[room] : undefined;
         // Someone else took over, or we left: stop capturing without telling the server again.
         if (!room || (music && music.streamerId !== s.meId && prev.music[room]?.streamerId === s.meId)) this.stopShare(!!room);
+      }
+      if (this.screenTrack && (s.screens !== prev.screens || s.presence !== prev.presence)) {
+        const room = s.meId ? s.presence[s.meId]?.roomId : null;
+        if (!room || (prev.screens[room] === s.meId && s.screens[room] !== s.meId)) this.stopScreen(!!room);
       }
     });
     navigator.mediaDevices?.addEventListener?.('devicechange', () => void this.refreshDevices());
@@ -190,6 +203,7 @@ class VoiceEngine {
       ignoreOffer: false,
       transceiver: null,
       streamTransceiver: null,
+      videoTransceiver: null,
       audio,
       streamAudio,
       remoteSession: null,
@@ -200,7 +214,11 @@ class VoiceEngine {
     this.applyOutput(peer);
 
     pc.ontrack = (e) => {
-      // The offerer adds voice first and the stream channel second, so their mids are "0" and "1".
+      // The offerer adds voice, the stream channel and the screen channel in that order: mids "0", "1", "2".
+      if (e.track.kind === 'video') {
+        useVoice.setState({ screens: { ...useVoice.getState().screens, [id]: new MediaStream([e.track]) } });
+        return;
+      }
       const el = e.transceiver.mid === '1' ? streamAudio : audio;
       el.srcObject = new MediaStream([e.track]);
       void el.play().catch(() => undefined);
@@ -237,6 +255,8 @@ class VoiceEngine {
       // Adding the channel fires negotiationneeded, which sends the offer.
       peer.transceiver = pc.addTransceiver('audio', { direction: 'sendrecv' });
       peer.streamTransceiver = pc.addTransceiver('audio', { direction: 'sendrecv' });
+      peer.videoTransceiver = pc.addTransceiver('video', { direction: 'sendrecv' });
+      if (this.screenTrack) void this.sendScreen(peer);
       const track = this.stream?.getAudioTracks()[0];
       if (track) void peer.transceiver.sender.replaceTrack(track);
       if (this.shareTrack) void this.sendShare(peer);
@@ -255,12 +275,15 @@ class VoiceEngine {
     peer.audio.remove();
     peer.streamAudio.srcObject = null;
     peer.streamAudio.remove();
+    const { [id]: _screen, ...screens } = useVoice.getState().screens;
+    useVoice.setState({ screens });
     this.peers.delete(id);
     const { [id]: _gone, ...rest } = useVoice.getState().peers;
     useVoice.setState({ peers: rest });
   }
 
   private stopAll() {
+    this.stopScreen(false);
     this.stopShare(false);
     for (const id of [...this.peers.keys()]) this.closePeer(id);
     this.releaseMic();
@@ -307,13 +330,15 @@ class VoiceEngine {
       if (description.type === 'offer') {
         if (!peer.transceiver) {
           // Answer on the channels the offer created: voice first, then the stream channel.
-          const [voiceT, streamT] = pc.getTransceivers();
+          const [voiceT, streamT, videoT] = pc.getTransceivers();
           peer.transceiver = voiceT ?? null;
           peer.streamTransceiver = streamT ?? null;
-          for (const t of [voiceT, streamT]) if (t) t.direction = 'sendrecv';
+          peer.videoTransceiver = videoT ?? null;
+          for (const t of [voiceT, streamT, videoT]) if (t) t.direction = 'sendrecv';
           const track = this.stream?.getAudioTracks()[0];
           if (track && voiceT) await voiceT.sender.replaceTrack(track);
           if (this.shareTrack) await this.sendShare(peer);
+          if (this.screenTrack) await this.sendScreen(peer);
         }
         await pc.setLocalDescription();
         if (pc.localDescription) this.signal(peer.id, { description: pc.localDescription.toJSON() as RtcSignalDescription });
@@ -621,36 +646,48 @@ class VoiceEngine {
     }
   }
 
+  private shareSource: StreamSource | null = null;
+  private playerOff: (() => void) | null = null;
+
   /**
-   * Start sending what this computer is playing to everyone in the room. In the desktop app this
-   * captures system audio; in a browser, pick a tab or screen and tick "share audio".
+   * Start sending sound to everyone in the room.
+   * - `system`: everything this computer plays (any app), which can carry voices back.
+   * - `player`: only the built-in web player of the desktop app.
+   * In a browser the browser's own picker asks; picking a tab shares just that tab.
    */
-  async startShare(captured?: MediaStream): Promise<string | null> {
-    if (this.shareTrack) return null;
+  async startShare(source: StreamSource = 'system', captured?: MediaStream): Promise<string | null> {
+    if (this.shareTrack) this.stopShare(false);
     let stream = captured;
     if (!stream) {
       if (!navigator.mediaDevices?.getDisplayMedia) return 'Sharing audio isn’t available here. Use the Office desktop app.';
       try {
-        stream = await navigator.mediaDevices.getDisplayMedia({
-          video: true,
-          audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
-          // Ask the browser to leave out its own sound (our voices), where it can.
-          systemAudio: 'include',
-          ...({ restrictOwnAudio: true, selfBrowserSurface: 'exclude' } as object),
-        } as DisplayMediaStreamOptions);
+        if (desktop?.capture && source !== 'browser') {
+          desktop.capture.choose({ sourceId: null, audio: source === 'player' ? 'player' : 'system' });
+          stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+        } else {
+          source = 'browser';
+          stream = await navigator.mediaDevices.getDisplayMedia({
+            video: true,
+            audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+            systemAudio: 'include',
+            ...({ restrictOwnAudio: true, selfBrowserSurface: 'exclude', preferCurrentTab: false } as object),
+          } as DisplayMediaStreamOptions);
+        }
       } catch (err) {
-        return (err as DOMException).name === 'NotAllowedError' ? null : 'Couldn’t capture your computer’s audio.';
+        return (err as DOMException).name === 'NotAllowedError' ? null : 'Couldn’t capture that sound.';
       }
     }
     // Only the sound is wanted; drop any video the capture came with.
     stream.getVideoTracks().forEach((t) => t.stop());
     const track = stream.getAudioTracks()[0];
-    if (!track) return 'No audio was shared. Choose a screen or tab and turn on “Share audio”.';
+    if (!track) return 'No sound was shared. Pick a tab or screen and turn on “Share audio”.';
     track.contentHint = 'music';
     this.shareTrack = track;
+    this.shareSource = source;
     track.addEventListener('ended', () => this.stopShare());
+    if (source === 'player') this.playerOff = desktop?.player?.onClosed(() => this.stopShare()) ?? null;
     for (const peer of this.peers.values()) await this.sendShare(peer);
-    useStore.getState().send({ type: 'music.stream', on: true });
+    useStore.getState().send({ type: 'music.stream', on: true, source });
     this.watchShare(track);
     return null;
   }
@@ -719,6 +756,10 @@ class VoiceEngine {
 
   stopShare(tellServer = true) {
     if (!this.shareTrack) return;
+    this.playerOff?.();
+    this.playerOff = null;
+    if (this.shareSource === 'player') desktop?.player?.close();
+    this.shareSource = null;
     this.stopShareMeter();
     this.shareTrack.stop();
     this.shareTrack = null;
@@ -728,6 +769,87 @@ class VoiceEngine {
 
   get sharing() {
     return !!this.shareTrack;
+  }
+
+  // Screen sharing
+
+  private screenTrack: MediaStreamTrack | null = null;
+  /** Audio that came with the screen, sent on the stream channel. */
+  private screenAudio = false;
+
+  /**
+   * Show a screen or a window to the room. In the desktop app `sourceId` comes from our own
+   * picker; in a browser the browser's picker asks.
+   */
+  async startScreen(sourceId: string | null, withAudio: boolean): Promise<string | null> {
+    if (!navigator.mediaDevices?.getDisplayMedia) return 'Screen sharing isn’t available here. Use the Office desktop app.';
+    let stream: MediaStream;
+    try {
+      if (desktop?.capture) {
+        desktop.capture.choose({ sourceId, audio: withAudio ? 'system' : 'none' });
+        stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 30, max: 30 } }, audio: withAudio });
+      } else {
+        stream = await navigator.mediaDevices.getDisplayMedia({
+          video: { frameRate: { ideal: 30, max: 30 } },
+          audio: true,
+          ...({ selfBrowserSurface: 'exclude', systemAudio: 'include' } as object),
+        } as DisplayMediaStreamOptions);
+      }
+    } catch (err) {
+      return (err as DOMException).name === 'NotAllowedError' ? null : 'Couldn’t start sharing your screen.';
+    }
+    const video = stream.getVideoTracks()[0];
+    if (!video) return 'Nothing was picked to share.';
+    this.stopScreen(false);
+    video.contentHint = 'detail';
+    this.screenTrack = video;
+    video.addEventListener('ended', () => this.stopScreen());
+    useVoice.setState({ myScreen: new MediaStream([video]) });
+    for (const peer of this.peers.values()) await this.sendScreen(peer);
+    useStore.getState().send({ type: 'screen.share', on: true });
+
+    const audio = stream.getAudioTracks()[0];
+    if (audio) {
+      this.screenAudio = true;
+      await this.startShare(desktop?.capture ? 'system' : 'browser', new MediaStream([audio]));
+    }
+    return null;
+  }
+
+  stopScreen(tellServer = true) {
+    if (!this.screenTrack) return;
+    this.screenTrack.stop();
+    this.screenTrack = null;
+    useVoice.setState({ myScreen: null });
+    for (const peer of this.peers.values()) void peer.videoTransceiver?.sender.replaceTrack(null);
+    if (tellServer && useStore.getState().connection === 'online') useStore.getState().send({ type: 'screen.share', on: false });
+    if (this.screenAudio) {
+      this.screenAudio = false;
+      this.stopShare(tellServer);
+    }
+  }
+
+  get sharingScreen() {
+    return !!this.screenTrack;
+  }
+
+  /** Everyone gets their own copy of the video, so the bitrate shrinks as the room grows. */
+  private async sendScreen(peer: Peer) {
+    const sender = peer.videoTransceiver?.sender;
+    if (!sender) return;
+    await sender.replaceTrack(this.screenTrack);
+    try {
+      const viewers = Math.max(1, this.peers.size);
+      const params = sender.getParameters();
+      params.degradationPreference = 'maintain-resolution';
+      if (params.encodings?.length) {
+        params.encodings[0].maxBitrate = viewers <= 3 ? 2_500_000 : viewers <= 7 ? 1_500_000 : 900_000;
+        params.encodings[0].maxFramerate = viewers <= 7 ? 30 : 15;
+      }
+      await sender.setParameters(params);
+    } catch {
+      // The defaults still work.
+    }
   }
 
   async refreshDevices() {

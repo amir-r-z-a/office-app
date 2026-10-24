@@ -78,6 +78,12 @@ export function useMyRoomMusic(): RoomMusic | undefined {
 const HARD_DRIFT = 0.35;
 const SOFT_DRIFT = 0.06;
 const DUCK_LEVEL = 0.28;
+const SYSTEM_ECHO_LEVEL = 0.06;
+
+function ramp(current: number, target: number, down: number, up: number): number {
+  const step = target < current ? down : up;
+  return Math.abs(target - current) <= step ? target : current + Math.sign(target - current) * step;
+}
 
 class MusicPlayer {
   private audio = new Audio();
@@ -85,6 +91,7 @@ class MusicPlayer {
   private bestRtt = Infinity;
   private trackUrl = '';
   private gain = 1;
+  private streamGain = 1;
   private started = false;
   private syncTimer: number | undefined;
 
@@ -109,11 +116,9 @@ class MusicPlayer {
       if (s.outputId !== prev.outputId || s.deafened !== prev.deafened) this.applyOutput();
     });
 
-    // Drift check and the smooth volume ramp share one timer.
-    window.setInterval(() => {
-      this.align();
-      this.rampVolume();
-    }, 250);
+    window.setInterval(() => this.align(), 250);
+    // The volume ramp runs often, so ducking reacts within a tenth of a second.
+    window.setInterval(() => this.rampVolume(), 80);
     this.applyOutput();
     if (useStore.getState().connection === 'online') this.syncClock();
     this.update();
@@ -224,15 +229,30 @@ class MusicPlayer {
 
   // Volume
 
-  private targetGain(): number {
-    const { volume, duck } = useMusic.getState();
-    if (!duck) return volume;
+  private talking(): boolean {
     const s = useStore.getState();
     const roomId = s.meId ? s.presence[s.meId]?.roomId : null;
-    const talking =
+    return (
       !!roomId &&
-      Object.values(s.voice).some((v) => v.speaking && s.presence[v.userId]?.roomId === roomId && s.presence[v.userId]?.online);
-    return talking ? volume * DUCK_LEVEL : volume;
+      Object.values(s.voice).some((v) => v.speaking && s.presence[v.userId]?.roomId === roomId && s.presence[v.userId]?.online)
+    );
+  }
+
+  private targetGain(): number {
+    const { volume, duck } = useMusic.getState();
+    return duck && this.talking() ? volume * DUCK_LEVEL : volume;
+  }
+
+  /**
+   * Whole-computer sound carries the voices the sharer hears, so people would hear themselves.
+   * While anyone talks it drops almost to silence, whatever the duck setting; other shares
+   * (the web player, a browser tab) hold no voices and fade like music.
+   */
+  private targetStreamGain(): number {
+    const { volume } = useMusic.getState();
+    const { music } = this.state();
+    if (music?.streamSource === 'system' && this.talking()) return volume * SYSTEM_ECHO_LEVEL;
+    return this.targetGain();
   }
 
   private applyVolume() {
@@ -241,11 +261,11 @@ class MusicPlayer {
 
   /** Move a step toward the target volume, so ducking fades instead of cutting. */
   private rampVolume() {
-    const target = this.targetGain();
-    const step = target < this.gain ? 0.12 : 0.05;
-    this.gain = Math.abs(target - this.gain) <= step ? target : this.gain + Math.sign(target - this.gain) * step;
+    this.gain = ramp(this.gain, this.targetGain(), 0.05, 0.02);
     this.audio.volume = Math.max(0, Math.min(1, this.gain));
-    voice.setStreamVolume(this.gain);
+    // Fall fast when someone starts talking, so their echo is gone before it arrives.
+    this.streamGain = ramp(this.streamGain, this.targetStreamGain(), 0.5, 0.02);
+    voice.setStreamVolume(this.streamGain);
   }
 
   private applyOutput() {

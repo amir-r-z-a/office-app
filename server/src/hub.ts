@@ -31,6 +31,8 @@ export class Hub {
   private offlineTimers = new Map<string, NodeJS.Timeout>();
   private knocks = new Map<string, PendingKnock>();
   private voice = new Map<string, VoiceState>();
+  /** Room id to the person showing their screen there. */
+  private screens = new Map<string, string>();
 
   readonly music: MusicRooms;
 
@@ -104,7 +106,7 @@ export class Hub {
     this.voice.delete(userId);
     this.broadcastPresence(userId);
     if (roomId) {
-      this.music.left(userId, roomId, !this.occupants(roomId).length);
+      this.leftRoom(userId, roomId);
       this.afterRoomChanged(roomId);
     }
   }
@@ -196,6 +198,18 @@ export class Hub {
         if (problem) this.notice(userId, 'error', problem);
         return;
       }
+      case 'screen.share': {
+        const room = this.location.get(userId);
+        if (!room) return this.notice(userId, 'error', 'Walk into a room to share your screen.');
+        if (msg.on) {
+          // One screen per room: a new share takes over.
+          this.screens.set(room, userId);
+          this.broadcast({ type: 'screen.state', roomId: room, userId });
+        } else if (this.screens.get(room) === userId) {
+          this.endScreen(room);
+        }
+        return;
+      }
       case 'rtc.signal': {
         // Calls only happen between people in the same room; anything else is dropped.
         const room = this.location.get(userId);
@@ -204,6 +218,17 @@ export class Hub {
         return;
       }
     }
+  }
+
+  private endScreen(roomId: string) {
+    if (!this.screens.delete(roomId)) return;
+    this.broadcast({ type: 'screen.state', roomId, userId: null });
+  }
+
+  /** A person's screen share ends when they leave the room it was in. */
+  private leftRoom(userId: string, roomId: string) {
+    if (this.screens.get(roomId) === userId) this.endScreen(roomId);
+    this.music.left(userId, roomId, !this.occupants(roomId).length);
   }
 
   private setVoice(userId: string, patch: Partial<Omit<VoiceState, 'userId'>>): void {
@@ -284,7 +309,7 @@ export class Hub {
     }
     this.broadcastPresence(userId);
     if (from) {
-      this.music.left(userId, from, !this.occupants(from).length);
+      this.leftRoom(userId, from);
       this.afterRoomChanged(from);
     }
   }
@@ -320,6 +345,7 @@ export class Hub {
 
   roomRemoved(roomId: string): void {
     this.music.roomRemoved(roomId);
+    this.screens.delete(roomId);
     for (const k of [...this.knocks.values()]) if (k.roomId === roomId) this.resolveKnock(k.id, 'cancelled');
     for (const id of this.occupants(roomId)) {
       this.location.set(id, null);
@@ -358,6 +384,7 @@ export class Hub {
       voice: [...this.voice.values()],
       library: this.db.listTracks(),
       music: this.music.all(),
+      screens: [...this.screens].map(([roomId, userId]) => ({ roomId, userId })),
     };
   }
 

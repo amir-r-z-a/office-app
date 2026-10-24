@@ -27,6 +27,8 @@ interface State {
   voice: Record<string, VoiceState>;
   library: Record<string, Track>;
   music: Record<string, RoomMusic>;
+  /** Room id to the person sharing their screen there. */
+  screens: Record<string, string>;
   incoming: Knock[];
   outgoing: Knock | null;
   toasts: Toast[];
@@ -79,6 +81,7 @@ export const useStore = create<State>((set, get) => ({
   voice: {},
   library: {},
   music: {},
+  screens: {},
   incoming: [],
   outgoing: null,
   toasts: [],
@@ -116,7 +119,7 @@ export const useStore = create<State>((set, get) => ({
     setToken(null);
     socket?.close();
     socket = null;
-    set({ phase: 'login', meId: null, users: {}, rooms: {}, presence: {}, voice: {}, library: {}, music: {}, incoming: [], outgoing: null, view: 'office', selectedRoomId: null });
+    set({ phase: 'login', meId: null, users: {}, rooms: {}, presence: {}, voice: {}, library: {}, music: {}, screens: {}, incoming: [], outgoing: null, view: 'office', selectedRoomId: null });
   },
 
   send: (msg) => {
@@ -186,6 +189,7 @@ function handle(msg: ServerMessage) {
         voice: Object.fromEntries(snapshot.voice.map((v) => [v.userId, v])),
         library: Object.fromEntries(snapshot.library.map((t) => [t.id, t])),
         music: Object.fromEntries(snapshot.music.map((m) => [m.roomId, m])),
+        screens: Object.fromEntries(snapshot.screens.map((sc) => [sc.roomId, sc.userId])),
         incoming: [],
         outgoing: null,
       });
@@ -226,6 +230,15 @@ function handle(msg: ServerMessage) {
     case 'time.sync':
       timeSyncHandler?.(msg.t0, msg.server);
       return;
+    case 'screen.state': {
+      const { [msg.roomId]: _old, ...rest } = s.screens;
+      set({ screens: msg.userId ? { ...rest, [msg.roomId]: msg.userId } : rest });
+      const myRoom = s.meId ? s.presence[s.meId]?.roomId : null;
+      if (msg.userId && msg.userId !== s.meId && myRoom === msg.roomId) {
+        s.toast({ tone: 'info', title: `${name(msg.userId)} is sharing their screen`, userId: msg.userId });
+      }
+      return;
+    }
     case 'library.upsert':
       return set({ library: { ...s.library, [msg.track.id]: msg.track } });
     case 'library.remove': {

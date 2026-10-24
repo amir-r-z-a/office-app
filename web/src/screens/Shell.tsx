@@ -10,6 +10,7 @@ import { Avatar, StatusDot, statusLabel } from '../components/Avatar';
 import { Button, Field, Modal, Popover, Segmented } from '../components/ui';
 import { Office, DoorbellStack } from './Office';
 import { AudioSettings } from '../components/Voice';
+import { SharePicker } from '../components/Share';
 import { UpdateButton, UpdateMenuItem } from '../components/Update';
 import { useVoice } from '../lib/voice';
 import { Admin } from './Admin';
@@ -39,6 +40,7 @@ export function Shell() {
       <DoorbellStack />
       <ProfileModal />
       <AudioSettings />
+      <SharePicker />
     </div>
   );
 }

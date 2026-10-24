@@ -27,6 +27,7 @@ import { useMe, useStore } from '../lib/store';
 import { voice } from '../lib/voice';
 import { Avatar } from './Avatar';
 import { Button, IconButton, Segmented } from './ui';
+import { openSharePicker } from './Share';
 
 // Small pieces
 
@@ -561,18 +562,11 @@ function Library({ music }: { music?: RoomMusic }) {
 function SharePane({ music }: { music?: RoomMusic }) {
   const users = useStore((s) => s.users);
   const meId = useStore((s) => s.meId);
-  const toast = useStore((s) => s.toast);
-  const [busy, setBusy] = useState(false);
   const streamer = music?.streamerId ? users[music.streamerId] : undefined;
   const mine = streamer?.id === meId;
   const isMac = navigator.platform.toLowerCase().includes('mac');
 
-  const start = async () => {
-    setBusy(true);
-    const problem = await voice.startShare();
-    setBusy(false);
-    if (problem) toast({ tone: 'error', title: 'Couldn’t share audio', body: problem });
-  };
+  const start = () => openSharePicker('audio');
 
   return (
     <div className="share">
@@ -580,8 +574,8 @@ function SharePane({ music }: { music?: RoomMusic }) {
         <span className="share__icon">
           <Radio size={26} />
         </span>
-        <strong>Share your computer’s audio</strong>
-        <span>Play anything on your computer (Spotify, YouTube, a playlist) and everyone in this room hears it too. The queue pauses while you share.</span>
+        <strong>Share audio with the room</strong>
+        <span>Play music in Office’s web player or anywhere on your computer, and everyone in this room hears it too. The queue pauses while you share.</span>
       </div>
       {streamer && !mine ? (
         <div className="share__other">
@@ -598,12 +592,12 @@ function SharePane({ music }: { music?: RoomMusic }) {
           Stop sharing
         </Button>
       ) : (
-        <Button variant="gradient" size="lg" block loading={busy} icon={<Radio size={18} />} onClick={() => void start()}>
+        <Button variant="gradient" size="lg" block icon={<Radio size={18} />} onClick={start}>
           Start sharing
         </Button>
       )}
       <ul className="share__tips">
-        <li>Sound comes from your whole computer, so mute notifications while you share.</li>
+        <li>The web player shares only its own sound. “Entire computer sound” shares everything, notifications included.</li>
         <li>Others control how loud it is with their music volume, and it fades down while people talk.</li>
         {isMac && (
           <li>

@@ -259,3 +259,35 @@ test('a room plays its queue in step, moves on when a song ends, and pauses when
     await s.stop();
   }
 });
+
+test('one screen share per room: it can be taken over and ends when the sharer leaves', async () => {
+  const s = await start();
+  try {
+    const setup = (await s.call('POST', '/api/setup', { username: 'boss', displayName: 'Boss', password: 'secret', officeName: 'HQ', sampleLayout: false })).body;
+    const admin = setup.token;
+    const lounge = (await s.call('POST', '/api/rooms', { name: 'Lounge', kind: 'lounge', ownerId: null, hue: 'amber', lockMode: 'open', capacity: 10, x: 0, y: 0, w: 300, h: 300 }, admin)).body;
+    const sam = (await s.call('POST', '/api/users', { username: 'sam', displayName: 'Sam', password: 'pass1', role: 'member' }, admin)).body;
+    const samToken = (await s.call('POST', '/api/login', { username: 'sam', password: 'pass1' })).body.token;
+    const boss = connect(s.port, admin);
+    const samWs = connect(s.port, samToken);
+    await Promise.all([boss.opened, samWs.opened, boss.next('snapshot'), samWs.next('snapshot')]);
+
+    boss.send({ type: 'screen.share', on: true });
+    assert.match((await boss.next('notice')).message, /room/);
+
+    boss.send({ type: 'room.enter', roomId: lounge.id });
+    samWs.send({ type: 'room.enter', roomId: lounge.id });
+    await boss.next('presence', (m) => m.presence.userId === sam.id && m.presence.roomId === lounge.id);
+    boss.send({ type: 'screen.share', on: true });
+    await samWs.next('screen.state', (m) => m.userId === setup.user.id);
+    samWs.send({ type: 'screen.share', on: true });
+    await boss.next('screen.state', (m) => m.userId === sam.id);
+    samWs.send({ type: 'room.leave' });
+    const ended = await boss.next('screen.state', (m) => m.userId === null);
+    assert.equal(ended.roomId, lounge.id);
+    boss.ws.close();
+    samWs.ws.close();
+  } finally {
+    await s.stop();
+  }
+});

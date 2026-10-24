@@ -8,6 +8,7 @@ import { FloorMap, KIND_ICON, KIND_LABEL } from '../components/FloorMap';
 import { Badge, Button, IconButton, Segmented } from '../components/ui';
 import { SpeakingAvatar, VoiceDock, VolumeControl } from '../components/Voice';
 import { MusicPanel } from '../components/Music';
+import { ScreenStage } from '../components/Share';
 import { useMusic } from '../lib/music';
 
 export function Office() {
@@ -43,6 +44,7 @@ export function Office() {
           selectedRoomId && <RoomPanel key={selectedRoomId} roomId={selectedRoomId} onClose={() => selectRoom(null)} />
         )}
       </AnimatePresence>
+      <ScreenStage />
       <OutgoingKnock />
       <VoiceDock />
     </div>

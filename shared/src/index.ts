@@ -116,6 +116,16 @@ export interface RoomMusic {
   repeat: RepeatMode;
   /** Someone sharing their computer's audio instead of the queue. */
   streamerId: string | null;
+  /** Where shared audio comes from; whole-computer sound can carry people's voices back. */
+  streamSource: StreamSource | null;
+}
+
+export type StreamSource = 'system' | 'player' | 'browser';
+
+/** Someone showing their screen or a window to their room. */
+export interface ScreenShare {
+  roomId: string;
+  userId: string;
 }
 
 export const MAX_UPLOAD_MB = 60;
@@ -131,6 +141,7 @@ export interface Snapshot {
   voice: VoiceState[];
   library: Track[];
   music: RoomMusic[];
+  screens: ScreenShare[];
 }
 
 /** Messages the app sends over the socket. */
@@ -158,7 +169,8 @@ export type ClientMessage =
   | { type: 'music.next' }
   | { type: 'music.prev' }
   | { type: 'music.repeat'; mode: RepeatMode }
-  | { type: 'music.stream'; on: boolean }
+  | { type: 'music.stream'; on: boolean; source?: StreamSource }
+  | { type: 'screen.share'; on: boolean }
   | { type: 'ping' };
 
 /** Messages the server sends over the socket. */
@@ -180,6 +192,7 @@ export type ServerMessage =
   | { type: 'library.upsert'; track: Track }
   | { type: 'library.remove'; trackId: string }
   | { type: 'music.state'; music: RoomMusic }
+  | { type: 'screen.state'; roomId: string; userId: string | null }
   | { type: 'rtc.signal'; from: string; signal: RtcSignal }
   | { type: 'notice'; level: 'info' | 'error'; message: string }
   | { type: 'pong' };

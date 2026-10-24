@@ -7,6 +7,7 @@ import { playDoorbell } from '../lib/sound';
 import { Avatar } from './Avatar';
 import { Modal } from './ui';
 import { DockMusic } from './Music';
+import { ScreenButton } from './Share';
 
 /** The voice state of one person as everyone sees it, plus whether it's me. */
 export function useVoiceOf(userId: string) {
@@ -87,6 +88,7 @@ export function VoiceDock() {
             >
               {deafened ? <HeadphoneOff size={19} /> : <Headphones size={19} />}
             </DockButton>
+            <ScreenButton />
             <DockButton label="Audio settings" onClick={() => useVoice.setState({ settingsOpen: true })}>
               <Settings2 size={19} />
             </DockButton>

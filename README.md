@@ -2,7 +2,7 @@
 
 A virtual office for your team's local network. Everyone has a room on an interactive floor plan, so you can see who's around, ring a coworker's doorbell, and walk in to talk. It runs entirely on your office Wi-Fi: one computer is the server, and everyone else uses the desktop app.
 
-> **Status: Phase 3 of 6.** Done so far: the office map, presence, statuses, doorbells, room locks, profiles, the admin area, voice, and music. Coming next: messaging, meeting rooms with screen sharing, and installers. See the [roadmap](#roadmap).
+> **Status:** the office map, presence, statuses, doorbells, room locks, profiles, the admin area, voice, music, screen sharing and desktop installers with in-app updates are done. Coming next: messaging. See the [roadmap](#roadmap).
 
 | Light | Dark |
 | --- | --- |
@@ -11,6 +11,9 @@ A virtual office for your team's local network. Everyone has a room on an intera
 | ![Managing people](docs/screenshots/people-light.png) | ![The floor plan editor](docs/screenshots/editor-dark.png) |
 | ![In a call, with the voice dock](docs/screenshots/voice-light.png) | ![Per-person volume in a call](docs/screenshots/voice-dark.png) |
 | ![The room's music queue](docs/screenshots/music-queue-dark.png) | ![Someone sharing their computer's audio](docs/screenshots/music-share-dark.png) |
+| ![Choosing where shared audio comes from](docs/screenshots/audio-picker-light.png) | ![Picking a window to share](docs/screenshots/share-picker-dark.png) |
+
+![Watching a coworker's shared screen](docs/screenshots/screen-share-dark.png)
 
 ## What it does today
 
@@ -27,6 +30,11 @@ A virtual office for your team's local network. Everyone has a room on an intera
   - **Share your computer's audio:** whatever plays on your computer (Spotify, YouTube…) is heard by everyone in the room. The queue waits while you share.
   - **Volume:** music has its own volume and fades down while people talk (you can turn that off). The map shows what's playing in every room.
   - **Empty rooms:** the music pauses when everyone leaves and picks up there when someone comes back.
+- **Screen sharing.** The screen button in the dock opens a picker with live thumbnails of every screen and window. Everyone in your room sees it in a large view they can shrink to a corner or make fullscreen. Your computer's sound can go along with it. One screen per room: a new share takes over.
+- **Sharing audio, without echo.** Pick where the sound comes from:
+  - **Web player (no echo):** a player window inside Office (YouTube, YouTube Music, SoundCloud or any site). Only its sound reaches the room, so nobody hears their own voice.
+  - **Entire computer sound:** any app, Spotify included. That also captures the voices you hear, so while anyone talks Office turns this sound almost silent for everyone in the room.
+  - In a browser, pick a **tab** and turn on "Share tab audio" (also echo-free).
 - **Statuses.** Available, Busy, Away or Do not disturb, plus a custom status line. Do not disturb locks your door and silences your doorbell.
 - **Profiles.** Name, title, color, emoji or uploaded photo, and password.
 - **Admin area.** Add and remove people (with generated passwords and an automatic personal room), and edit the floor plan by dragging, resizing, recoloring and assigning rooms.
@@ -50,6 +58,8 @@ The server prints its address, for example:
   On this computer:  http://localhost:4000
   On the office Wi-Fi: http://192.168.1.20:4000
 ```
+
+To stop the server, press **Ctrl+C** in its window. It prints "Stopping… Stopped." Press Ctrl+C again to quit at once.
 
 Open that address. The first visit asks you to set up the office and create the admin account. Then go to **Admin → People** to add your coworkers.
 
@@ -120,6 +130,6 @@ desktop/  Electron shell that loads the UI from the office server
 1. ✅ **Core:** sign-in, admin, floor plan editor, live map, presence, statuses, doorbells, locks
 2. ✅ **Voice:** talk with everyone in your room, mute, sound off, per-person volume, device settings
 3. ✅ **Music:** shared library, synced queue per room, sharing your computer's audio
-4. **Messaging:** direct messages, room chat, an office channel, unread badges and notifications
-5. **Meeting rooms and screen sharing**
-6. **Packaging:** Windows/macOS installers and a one-step server setup
+4. ✅ **Screen sharing** with a screen and window picker, and echo-free audio sharing
+5. ✅ **Installers:** Windows `.exe` and macOS `.dmg` that update themselves
+6. **Messaging:** direct messages, room chat, an office channel, unread badges

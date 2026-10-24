@@ -11,11 +11,29 @@ export interface UpdateState {
   manualUrl?: string;
 }
 
+export interface CaptureSource {
+  id: string;
+  name: string;
+  kind: 'screen' | 'window';
+  thumbnail: string;
+  icon: string | null;
+}
+
 /** Present when the app runs inside the Office desktop app. */
 export interface OfficeDesktop {
   platform: string;
   changeServer: () => void;
   attention: () => void;
+  /** Missing in desktop apps older than 0.2.0. */
+  capture?: {
+    sources: (opts?: { width?: number; height?: number }) => Promise<CaptureSource[]>;
+    choose: (choice: { sourceId: string | null; audio: 'none' | 'system' | 'player' }) => void;
+  };
+  player?: {
+    open: (url: string) => Promise<boolean>;
+    close: () => void;
+    onClosed: (fn: () => void) => () => void;
+  };
   /** Missing in desktop apps older than 0.1.0. */
   updates?: {
     get: () => Promise<UpdateState>;

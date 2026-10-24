@@ -56,7 +56,7 @@ export async function buildApp(opts: AppOptions) {
   const db = new Db(join(opts.dataDir, 'office.db'));
   const hub = new Hub(db);
   const tokens = new Tokens(loadSecret(opts.dataDir));
-  const app = Fastify({ logger: opts.logger ?? false, bodyLimit: 1024 * 1024 });
+  const app = Fastify({ logger: opts.logger ?? false, bodyLimit: 1024 * 1024, forceCloseConnections: true });
 
   for (const type of [/^audio\//, 'application/octet-stream']) {
     app.addContentTypeParser(type, { parseAs: 'buffer', bodyLimit: MAX_UPLOAD_MB * 1024 * 1024 }, (_req, body, done) => done(null, body));
