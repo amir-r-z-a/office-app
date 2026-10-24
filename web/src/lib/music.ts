@@ -16,21 +16,16 @@ interface Upload {
 
 interface MusicPrefs {
   volume: number;
-  /** Lower the music while anyone in the room talks. */
-  duck: boolean;
-  /** How much to lower it: 0.2 is a little, 0.9 is nearly silent. */
-  duckAmount: number;
-  /** Turn shared whole-computer sound almost silent while anyone talks, so nobody hears themselves. */
-  echoGuard: boolean;
 }
 
-const DEFAULT_PREFS: MusicPrefs = { volume: 0.7, duck: true, duckAmount: 0.7, echoGuard: true };
+const DEFAULT_PREFS: MusicPrefs = { volume: 0.7 };
 
 const PREFS_KEY = 'office.music';
 
 function loadPrefs(): MusicPrefs {
   try {
-    return { ...DEFAULT_PREFS, ...JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') };
+    const saved = JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}');
+    return { volume: typeof saved.volume === 'number' ? saved.volume : DEFAULT_PREFS.volume };
   } catch {
     return DEFAULT_PREFS;
   }
@@ -55,9 +50,9 @@ export const useMusic = create<MusicStore>(() => ({
 }));
 
 function savePrefs() {
-  const { volume, duck, duckAmount, echoGuard } = useMusic.getState();
+  const { volume } = useMusic.getState();
   try {
-    localStorage.setItem(PREFS_KEY, JSON.stringify({ volume, duck, duckAmount, echoGuard }));
+    localStorage.setItem(PREFS_KEY, JSON.stringify({ volume }));
   } catch {
     // Not remembered.
   }
@@ -83,20 +78,12 @@ export function useMyRoomMusic(): RoomMusic | undefined {
 
 const HARD_DRIFT = 0.35;
 const SOFT_DRIFT = 0.06;
-const SYSTEM_ECHO_LEVEL = 0.06;
-
-function ramp(current: number, target: number, down: number, up: number): number {
-  const step = target < current ? down : up;
-  return Math.abs(target - current) <= step ? target : current + Math.sign(target - current) * step;
-}
 
 class MusicPlayer {
   private audio = new Audio();
   private offset = 0;
   private bestRtt = Infinity;
   private trackUrl = '';
-  private gain = 1;
-  private streamGain = 1;
   private started = false;
   private syncTimer: number | undefined;
 
@@ -110,21 +97,19 @@ class MusicPlayer {
 
     useStore.subscribe((s, prev) => {
       if (s.music !== prev.music || s.presence !== prev.presence || s.library !== prev.library || s.meId !== prev.meId) this.update();
-      if (s.voice !== prev.voice) this.applyVolume();
       if (s.connection === 'online' && prev.connection !== 'online') this.syncClock();
       if (s.phase !== 'ready' && prev.phase === 'ready') this.stop();
     });
     useMusic.subscribe((s, prev) => {
-      if (s.volume !== prev.volume || s.duck !== prev.duck || s.duckAmount !== prev.duckAmount || s.echoGuard !== prev.echoGuard) this.applyVolume();
+      if (s.volume !== prev.volume) this.applyVolume();
     });
     useVoice.subscribe((s, prev) => {
       if (s.outputId !== prev.outputId || s.deafened !== prev.deafened) this.applyOutput();
     });
 
     window.setInterval(() => this.align(), 250);
-    // The volume ramp runs often, so ducking reacts within a tenth of a second.
-    window.setInterval(() => this.rampVolume(), 80);
     this.applyOutput();
+    this.applyVolume();
     if (useStore.getState().connection === 'online') this.syncClock();
     this.update();
   }
@@ -234,43 +219,11 @@ class MusicPlayer {
 
   // Volume
 
-  private talking(): boolean {
-    const s = useStore.getState();
-    const roomId = s.meId ? s.presence[s.meId]?.roomId : null;
-    return (
-      !!roomId &&
-      Object.values(s.voice).some((v) => v.speaking && s.presence[v.userId]?.roomId === roomId && s.presence[v.userId]?.online)
-    );
-  }
-
-  private targetGain(): number {
-    const { volume, duck, duckAmount } = useMusic.getState();
-    return duck && this.talking() ? volume * (1 - duckAmount) : volume;
-  }
-
-  /**
-   * Whole-computer sound carries the voices the sharer hears, so people would hear themselves.
-   * While anyone talks it drops almost to silence, whatever the duck setting; other shares
-   * (the web player, a browser tab) hold no voices and fade like music.
-   */
-  private targetStreamGain(): number {
-    const { volume, echoGuard } = useMusic.getState();
-    const { music } = this.state();
-    if (echoGuard && music?.streamSource === 'system' && this.talking()) return volume * SYSTEM_ECHO_LEVEL;
-    return this.targetGain();
-  }
-
+  /** Music and shared sound play at the volume each person picked; nothing else changes it. */
   private applyVolume() {
-    this.rampVolume();
-  }
-
-  /** Move a step toward the target volume, so ducking fades instead of cutting. */
-  private rampVolume() {
-    this.gain = ramp(this.gain, this.targetGain(), 0.05, 0.02);
-    this.audio.volume = Math.max(0, Math.min(1, this.gain));
-    // Fall fast when someone starts talking, so their echo is gone before it arrives.
-    this.streamGain = ramp(this.streamGain, this.targetStreamGain(), 0.5, 0.02);
-    voice.setStreamVolume(this.streamGain);
+    const { volume } = useMusic.getState();
+    this.audio.volume = Math.max(0, Math.min(1, volume));
+    voice.setStreamVolume(volume);
   }
 
   private applyOutput() {
@@ -285,11 +238,6 @@ class MusicPlayer {
     savePrefs();
   }
 
-  /** Change how music behaves while people talk. */
-  setDucking(patch: Partial<Pick<MusicPrefs, 'duck' | 'duckAmount' | 'echoGuard'>>) {
-    useMusic.setState(patch);
-    savePrefs();
-  }
 
   /** For tests: how far our player is from where the song should be. */
   debug() {

@@ -597,8 +597,8 @@ function SharePane({ music }: { music?: RoomMusic }) {
         </Button>
       )}
       <ul className="share__tips">
-        <li>The web player shares only its own sound. “Entire computer sound” shares everything, notifications included.</li>
-        <li>Everyone sets their own volume for it, and whether it gets quieter while people talk (Audio settings → While people talk).</li>
+        <li>The web player shares only its own sound. “Entire computer sound” shares everything, including notifications and the voices you hear, so the web player is better while people are talking.</li>
+        <li>Everyone hears it at their own music volume.</li>
         {isMac && (
           <li>
             On a Mac, the first share asks to allow screen and system audio recording. Allow it, then quit and reopen the app. If nothing comes

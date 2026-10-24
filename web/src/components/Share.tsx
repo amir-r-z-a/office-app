@@ -148,7 +148,7 @@ function ScreenChoice({ onDone }: { onDone: () => void }) {
       <label className={`toggle ${withAudio ? 'is-on' : ''}`}>
         <span className="toggle__text">
           <strong>Also share my computer’s sound</strong>
-          <span>Everything your computer plays. People may hear their own voices faintly, so Office turns it down while anyone talks.</span>
+          <span>Everything your computer plays, including the voices you hear, so people may hear themselves.</span>
         </span>
         <input type="checkbox" checked={withAudio} onChange={(e) => setWithAudio(e.target.checked)} />
         <span className="toggle__switch">
@@ -291,7 +291,7 @@ function AudioChoice({ onDone }: { onDone: () => void }) {
         </span>
         <span className="audio-option__text">
           <strong>Entire computer sound</strong>
-          <span>Spotify, Apple Music or any app. It also carries the voices you hear, so Office turns it almost silent while anyone talks (Echo protection, on by default).</span>
+          <span>Spotify, Apple Music or any app. It also carries the voices you hear, so people may hear themselves. Best when the room is just listening.</span>
         </span>
         {busy === 'system' && <span className="spinner" />}
       </button>

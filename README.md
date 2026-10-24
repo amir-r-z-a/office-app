@@ -28,12 +28,12 @@ A virtual office for your team's local network. Everyone has a room on an intera
   - **Library:** one for the whole office. Drop MP3, M4A, FLAC, OGG, Opus, WAV or WebM files onto the music panel (up to 60 MB each). Titles, artists and album art are read from the files.
   - **Queue:** play now, play next, add to queue, drag to reorder, repeat the queue or one song. Anyone in the room can control it.
   - **Share your computer's audio:** whatever plays on your computer (Spotify, YouTube…) is heard by everyone in the room. The queue waits while you share.
-  - **Volume:** music has its own volume. Under **Audio settings → While people talk**, each person chooses whether music gets quieter when someone speaks, and by how much. The map shows what's playing in every room.
+  - **Volume:** music has its own volume, separate from voices. The map shows what's playing in every room.
   - **Empty rooms:** the music pauses when everyone leaves and picks up there when someone comes back.
 - **Screen sharing.** The screen button in the dock opens a picker with live thumbnails of every screen and window. Everyone in your room sees it in a large view they can shrink to a corner or make fullscreen. Your computer's sound can go along with it. One screen per room: a new share takes over.
 - **Sharing audio, without echo.** Pick where the sound comes from:
   - **Web player (no echo):** a player window inside Office (YouTube, YouTube Music, SoundCloud or any site). Only its sound reaches the room, so nobody hears their own voice.
-  - **Entire computer sound:** any app, Spotify included. That also captures the voices you hear, so while anyone talks Office turns this sound almost silent (**Echo protection**, on by default; each person can switch it off).
+  - **Entire computer sound:** any app, Spotify included. It also captures the voices the sharer hears, so people may hear themselves. The web player is the better choice while people are talking.
   - In a browser, pick a **tab** and turn on "Share tab audio" (also echo-free).
 - **Statuses.** Available, Busy, Away or Do not disturb, plus a custom status line. Do not disturb locks your door and silences your doorbell.
 - **Profiles.** Name, title, color, emoji or uploaded photo, and password.

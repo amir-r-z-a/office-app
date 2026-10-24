@@ -624,7 +624,7 @@ class VoiceEngine {
   private shareTrack: MediaStreamTrack | null = null;
   private streamVolume = 0.7;
 
-  /** Shared audio plays at the music volume, ducked like music. */
+  /** Shared audio plays at the music volume. */
   setStreamVolume(volume: number) {
     this.streamVolume = Math.max(0, Math.min(1, volume));
     for (const peer of this.peers.values()) peer.streamAudio.volume = this.streamVolume;
