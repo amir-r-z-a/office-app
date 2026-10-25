@@ -2,12 +2,13 @@
 
 export type Role = 'admin' | 'member';
 export type Status = 'available' | 'busy' | 'away' | 'dnd';
-export type RoomKind = 'personal' | 'meeting' | 'lounge';
+/** listening: music only; nobody's microphone is used there. */
+export type RoomKind = 'personal' | 'meeting' | 'lounge' | 'listening';
 /** open: walk in. knock: ring the bell and wait. locked: no visitors. */
 export type LockMode = 'open' | 'knock' | 'locked';
 
 export const STATUSES: Status[] = ['available', 'busy', 'away', 'dnd'];
-export const ROOM_KINDS: RoomKind[] = ['personal', 'meeting', 'lounge'];
+export const ROOM_KINDS: RoomKind[] = ['personal', 'meeting', 'lounge', 'listening'];
 export const LOCK_MODES: LockMode[] = ['open', 'knock', 'locked'];
 /** Room and avatar tints; the app maps each to a light and a dark color. */
 export const HUES = ['violet', 'coral', 'mint', 'sky', 'amber', 'rose', 'lime', 'indigo'] as const;

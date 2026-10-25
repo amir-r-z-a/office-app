@@ -4265,3 +4265,20 @@ kbd {
   margin: 0;
   font-variant-numeric: tabular-nums;
 }
+
+.dock__listening {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 44px;
+  padding: 0 14px;
+  border-radius: 15px;
+  background: hsl(338 80% 60% / 0.14);
+  color: hsl(338 75% 55%);
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+[data-theme='dark'] .dock__listening {
+  color: hsl(338 90% 75%);
+}

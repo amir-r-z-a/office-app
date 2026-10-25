@@ -24,6 +24,8 @@ A virtual office for your team's local network. Everyone has a room on an intera
   - Audio settings let you pick the microphone and speakers, check your level on a live meter, and switch noise suppression and echo cancellation.
   - Shortcuts: **Ctrl+Shift+M** mutes, **Ctrl+Shift+D** turns sound off (Cmd on a Mac). If you talk while muted, the app reminds you.
   - Your mic only switches on while someone else is in your room, so the system's "mic in use" light goes off when you're alone.
+- **Listening rooms.** A room type for music only: nobody's microphone is used there, so Bluetooth headphones stay in full quality and the computer doesn't turn other sound down for a call. Sharing audio or a screen still works there. Admins add one from the floor plan editor (**Add → Listening**).
+- **Muting closes the microphone.** A moment after you mute, Office releases the mic, so headphones return to full quality and the system's "mic in use" light goes off. Unmuting reopens it.
 - **Music.** Every room has its own player, and everyone inside hears the same song at the same moment.
   - **Library:** one for the whole office. Drop MP3, M4A, FLAC, OGG, Opus, WAV or WebM files onto the music panel (up to 60 MB each). Titles, artists and album art are read from the files.
   - **Queue:** play now, play next, add to queue, drag to reorder, repeat the queue or one song. Anyone in the room can control it.

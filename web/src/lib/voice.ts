@@ -92,7 +92,7 @@ const SESSION = Math.random().toString(36).slice(2, 10);
 
 const SPEAK_ON = 0.035;
 const SPEAK_OFF_MS = 650;
-const RELEASE_MIC_MS = 2500;
+const RELEASE_MIC_MS = 1500;
 
 class VoiceEngine {
   private peers = new Map<string, Peer>();
@@ -124,7 +124,7 @@ class VoiceEngine {
     onRtcSignal((from, signal) => void this.onSignal(from, signal));
 
     useStore.subscribe((s, prev) => {
-      if (s.presence !== prev.presence || s.meId !== prev.meId) this.sync();
+      if (s.presence !== prev.presence || s.meId !== prev.meId || s.rooms !== prev.rooms || s.music !== prev.music || s.screens !== prev.screens) this.sync();
       if (s.connection === 'online' && prev.connection !== 'online') this.announce();
       if (s.phase !== 'ready' && prev.phase === 'ready') this.stopAll();
       if (this.shareTrack && (s.music !== prev.music || s.presence !== prev.presence)) {
@@ -157,14 +157,36 @@ class VoiceEngine {
 
   // Who to talk to
 
-  /** Everyone online in my room, except me. Nobody talks in the hallway. */
+  /** In a listening room nobody's microphone is used; it's for music only. */
+  private inListeningRoom(): boolean {
+    const { meId, presence, rooms } = useStore.getState();
+    const room = meId ? presence[meId]?.roomId : null;
+    return !!room && rooms[room]?.kind === 'listening';
+  }
+
+  /**
+   * Everyone online in my room, except me. Nobody talks in the hallway. A listening room only
+   * needs connections while someone there shares their audio or screen.
+   */
   private wantedPeers(): string[] {
-    const { meId, presence } = useStore.getState();
+    const { meId, presence, music, screens } = useStore.getState();
     const room = meId ? presence[meId]?.roomId : null;
     if (!meId || !room) return [];
+    if (this.inListeningRoom() && !music[room]?.streamerId && !screens[room] && !this.shareTrack && !this.screenTrack) return [];
     return Object.values(presence)
       .filter((p) => p.online && p.roomId === room && p.userId !== meId)
       .map((p) => p.userId);
+  }
+
+  /**
+   * Whether the microphone should be open. Muted, sound off or in a listening room, it stays
+   * closed: an open mic switches Bluetooth headphones to their low-quality call mode, and macOS
+   * and Windows turn other sound down while a call is using the mic.
+   */
+  private wantsMic(): boolean {
+    if (this.previewing) return true;
+    const { muted, deafened } = useVoice.getState();
+    return this.peers.size > 0 && !muted && !deafened && !this.inListeningRoom();
   }
 
   private sync() {
@@ -173,17 +195,24 @@ class VoiceEngine {
     for (const id of wanted) if (!this.peers.has(id)) this.openPeer(id);
     // The room changed size while sharing: spread the bitrate again.
     if (this.screenTrack) for (const peer of this.peers.values()) void this.sendScreen(peer);
+    this.syncMic();
+  }
 
-    if (wanted.size) {
+  /** Open the mic when it's wanted; let it go a moment after it isn't. */
+  private syncMic() {
+    if (this.wantsMic()) {
       window.clearTimeout(this.releaseTimer);
       this.releaseTimer = undefined;
       void this.ensureMic();
     } else if (this.stream && !this.releaseTimer) {
-      // Alone again: let go of the microphone so the system's "mic in use" light goes off.
-      this.releaseTimer = window.setTimeout(() => {
-        this.releaseTimer = undefined;
-        if (!this.peers.size && !this.previewing) this.releaseMic();
-      }, RELEASE_MIC_MS);
+      // A short delay, so quickly toggling mute doesn't reopen the device each time.
+      this.releaseTimer = window.setTimeout(
+        () => {
+          this.releaseTimer = undefined;
+          if (!this.wantsMic()) this.releaseMic();
+        },
+        this.inListeningRoom() ? 0 : RELEASE_MIC_MS,
+      );
     }
   }
 
@@ -396,8 +425,8 @@ class VoiceEngine {
           channelCount: 1,
         },
       });
-      // We may have been left alone while the permission prompt was open.
-      if (!this.peers.size && !this.wantedPeers().length && !this.previewing) {
+      // We may have been left alone, or muted, while the permission prompt was open.
+      if (!this.wantsMic()) {
         stream.getTracks().forEach((t) => t.stop());
         useVoice.setState({ mic: 'off' });
         return;
@@ -434,6 +463,7 @@ class VoiceEngine {
   private releaseMic() {
     this.stream?.getTracks().forEach((t) => t.stop());
     this.stream = null;
+    for (const peer of this.peers.values()) void peer.transceiver?.sender.replaceTrack(null);
     this.stopMeter();
     if (this.speaking) this.setSpeaking(false);
     const mic = useVoice.getState().mic;
@@ -448,12 +478,12 @@ class VoiceEngine {
 
   endPreview() {
     this.previewing = false;
-    if (!this.peers.size) this.releaseMic();
+    if (!this.wantsMic()) this.releaseMic();
   }
 
   /** Reopen the mic with the current settings, e.g. after picking another device. */
   async restartMic() {
-    if (!this.peers.size && !this.previewing) return;
+    if (!this.wantsMic()) return;
     this.stream?.getTracks().forEach((t) => t.stop());
     this.stream = null;
     this.stopMeter();
@@ -464,7 +494,7 @@ class VoiceEngine {
   /** Try again after the mic was blocked or missing. */
   async retryMic() {
     useVoice.setState({ mic: 'off' });
-    if (this.wantedPeers().length) await this.ensureMic();
+    if (this.wantsMic()) await this.ensureMic();
     else await this.testPermission();
   }
 
@@ -581,6 +611,7 @@ class VoiceEngine {
     const { muted, deafened } = useVoice.getState();
     playMuteToggle(muted || deafened);
     this.applyMute();
+    this.syncMic();
     for (const peer of this.peers.values()) peer.audio.muted = deafened;
     savePrefs();
     const { send, connection } = useStore.getState();

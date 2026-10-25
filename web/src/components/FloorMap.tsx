@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { Armchair, Bell, DoorOpen, HeadphoneOff, Lock, Maximize, MicOff, Minus, Plus, Presentation, Sofa } from 'lucide-react';
+import { Armchair, Bell, DoorOpen, HeadphoneOff, Headphones, Lock, Maximize, MicOff, Minus, Plus, Presentation, Sofa } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import type { Floor, Room, RoomKind, User } from '@office/shared';
 import { useStore } from '../lib/store';
@@ -7,8 +7,8 @@ import { Avatar } from './Avatar';
 import { RoomNowPlaying } from './Music';
 import { RoomScreenChip } from './Share';
 
-export const KIND_ICON: Record<RoomKind, typeof Sofa> = { personal: Armchair, meeting: Presentation, lounge: Sofa };
-export const KIND_LABEL: Record<RoomKind, string> = { personal: 'Personal room', meeting: 'Meeting room', lounge: 'Lounge' };
+export const KIND_ICON: Record<RoomKind, typeof Sofa> = { personal: Armchair, meeting: Presentation, lounge: Sofa, listening: Headphones };
+export const KIND_LABEL: Record<RoomKind, string> = { personal: 'Personal room', meeting: 'Meeting room', lounge: 'Lounge', listening: 'Listening room' };
 
 const AVATAR = 46;
 const CELL_W = 64;

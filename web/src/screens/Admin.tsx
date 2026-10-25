@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { Armchair, Copy, Crown, KeyRound, LayoutGrid, Pencil, Plus, Presentation, Sofa, Trash2, UserPlus, Users, Wand2 } from 'lucide-react';
+import { Armchair, Copy, Crown, Headphones, KeyRound, LayoutGrid, Pencil, Plus, Presentation, Sofa, Trash2, UserPlus, Users, Wand2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import type { Hue, LockMode, Room, RoomKind, User } from '@office/shared';
 import { api } from '../lib/api';
@@ -376,6 +376,7 @@ const NEW_ROOM: Record<RoomKind, { name: string; w: number; h: number; capacity:
   personal: { name: 'New Room', w: 300, h: 230, capacity: 4, hue: 'violet', lockMode: 'knock' },
   meeting: { name: 'Meeting Room', w: 420, h: 280, capacity: 10, hue: 'sky', lockMode: 'open' },
   lounge: { name: 'Lounge', w: 480, h: 300, capacity: 15, hue: 'amber', lockMode: 'open' },
+  listening: { name: 'Listening Room', w: 380, h: 260, capacity: 15, hue: 'rose', lockMode: 'open' },
 };
 
 function FloorEditor() {
@@ -424,6 +425,9 @@ function FloorEditor() {
           <Button size="sm" variant="ghost" icon={<Sofa size={15} />} onClick={() => add('lounge')}>
             Lounge
           </Button>
+          <Button size="sm" variant="ghost" icon={<Headphones size={15} />} onClick={() => add('listening')} title="Music only: microphones stay off">
+            Listening
+          </Button>
         </div>
         <p className="editor__hint">Drag rooms to move them · drag the corner to resize</p>
       </div>
@@ -452,7 +456,7 @@ function FloorInspector() {
     setWidth(String(floor.width));
     setHeight(String(floor.height));
   }, [floor]);
-  const counts = Object.values(rooms).reduce<Record<RoomKind, number>>((acc, r) => ({ ...acc, [r.kind]: acc[r.kind] + 1 }), { personal: 0, meeting: 0, lounge: 0 });
+  const counts = Object.values(rooms).reduce<Record<RoomKind, number>>((acc, r) => ({ ...acc, [r.kind]: acc[r.kind] + 1 }), { personal: 0, meeting: 0, lounge: 0, listening: 0 });
 
   const save = async () => {
     try {
@@ -546,9 +550,11 @@ function RoomInspector({ room, onDeleted }: { room: Room; onDeleted: () => void 
             { value: 'personal', label: 'Personal', icon: <Armchair size={13} /> },
             { value: 'meeting', label: 'Meeting', icon: <Presentation size={13} /> },
             { value: 'lounge', label: 'Lounge', icon: <Sofa size={13} /> },
+            { value: 'listening', label: 'Listen', icon: <Headphones size={13} />, title: 'Music only: microphones stay off' },
           ]}
         />
       </div>
+      {room.kind === 'listening' && <p className="inspector__sub inspector__tip">Music only: microphones stay off here, so headphones keep full sound quality.</p>}
       {room.kind === 'personal' && (
         <label className="field">
           <span className="field__label">Owner</span>

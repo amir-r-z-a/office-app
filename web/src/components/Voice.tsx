@@ -32,14 +32,17 @@ export function VoiceDock() {
         .map((p) => p.userId)
     : [];
   const peerStates = Object.values(peers);
+  const listening = room?.kind === 'listening';
   const status = !others.length
     ? 'Just you here'
-    : peerStates.some((p) => p === 'reconnecting')
-      ? 'Reconnecting…'
-      : peerStates.length < others.length || peerStates.some((p) => p === 'connecting')
-        ? 'Connecting…'
-        : `Talking with ${others.length}`;
-  const live = others.length > 0 && status.startsWith('Talking');
+    : listening
+      ? `Listening with ${others.length}`
+      : peerStates.some((p) => p === 'reconnecting')
+        ? 'Reconnecting…'
+        : peerStates.length < others.length || peerStates.some((p) => p === 'connecting')
+          ? 'Connecting…'
+          : `Talking with ${others.length}`;
+  const live = others.length > 0 && (status.startsWith('Talking') || listening);
 
   return (
     <AnimatePresence>
@@ -79,7 +82,14 @@ export function VoiceDock() {
 
           <div className="dock__controls">
             <DockMusic />
-            <MicButton muted={muted || deafened} mic={mic} speaking={!!voiceStates[meId]?.speaking} />
+            {listening ? (
+              <span className="dock__listening" title="This is a listening room: microphones stay off so music keeps full quality.">
+                <MicOff size={16} />
+                Mics off
+              </span>
+            ) : (
+              <MicButton muted={muted || deafened} mic={mic} speaking={!!voiceStates[meId]?.speaking} />
+            )}
             <DockButton
               label={deafened ? 'Turn sound back on (Ctrl+Shift+D)' : 'Turn off sound (Ctrl+Shift+D)'}
               active={deafened}
