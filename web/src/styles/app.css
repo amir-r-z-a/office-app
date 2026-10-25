@@ -4282,3 +4282,32 @@ kbd {
 [data-theme='dark'] .dock__listening {
   color: hsl(338 90% 75%);
 }
+
+.kind-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.kind-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 12px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  border: 1.5px solid var(--border);
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 650;
+  transition: border-color 0.2s, background 0.2s, color 0.2s;
+}
+.kind-option:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+.kind-option.is-active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}

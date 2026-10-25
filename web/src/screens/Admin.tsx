@@ -541,18 +541,29 @@ function RoomInspector({ room, onDeleted }: { room: Room; onDeleted: () => void 
       />
       <div className="picker">
         <span className="picker__label">Kind</span>
-        <Segmented<RoomKind>
-          size="sm"
-          layoutId="room-kind"
-          value={room.kind}
-          onChange={(kind) => patch({ kind, ownerId: kind === 'personal' ? room.ownerId : null })}
-          options={[
-            { value: 'personal', label: 'Personal', icon: <Armchair size={13} /> },
-            { value: 'meeting', label: 'Meeting', icon: <Presentation size={13} /> },
-            { value: 'lounge', label: 'Lounge', icon: <Sofa size={13} /> },
-            { value: 'listening', label: 'Listen', icon: <Headphones size={13} />, title: 'Music only: microphones stay off' },
-          ]}
-        />
+        {/* A 2×2 grid: four kinds don't fit side by side in the inspector. */}
+        <div className="kind-grid" role="radiogroup">
+          {(
+            [
+              { value: 'personal', label: 'Personal', icon: <Armchair size={15} /> },
+              { value: 'meeting', label: 'Meeting', icon: <Presentation size={15} /> },
+              { value: 'lounge', label: 'Lounge', icon: <Sofa size={15} /> },
+              { value: 'listening', label: 'Listening', icon: <Headphones size={15} /> },
+            ] as { value: RoomKind; label: string; icon: React.ReactNode }[]
+          ).map((k) => (
+            <button
+              key={k.value}
+              type="button"
+              role="radio"
+              aria-checked={room.kind === k.value}
+              className={`kind-option ${room.kind === k.value ? 'is-active' : ''}`}
+              onClick={() => patch({ kind: k.value, ownerId: k.value === 'personal' ? room.ownerId : null })}
+            >
+              {k.icon}
+              {k.label}
+            </button>
+          ))}
+        </div>
       </div>
       {room.kind === 'listening' && <p className="inspector__sub inspector__tip">Music only: microphones stay off here, so headphones keep full sound quality.</p>}
       {room.kind === 'personal' && (
